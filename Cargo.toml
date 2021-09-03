@@ -9,7 +9,6 @@ license = "MIT"
 readme = "README.md"
 keywords = ["decoding"]
 categories = ["config", "decoding", "parser-implementations"]
-edition = "2018"
 
 [dependencies]
 logos = "0.12"
