@@ -1,12 +1,15 @@
 use logos::Logos;
 
 #[derive(Logos, Debug, PartialEq)]
-enum Token {
+pub enum Token {
     #[regex("[A-Za-z0-9_-]+")]
     BareString,
 
     #[regex("#[^\n|\r\n]*")]
     Comment,
+
+    #[token(",")]
+    Comma,
 
     #[token("=")]
     Equals,
@@ -19,11 +22,13 @@ enum Token {
     #[regex("'[^']*'")]
     LiteralString,
 
-    #[token("[")]
-    OpenBracket,
+    #[token("[", |_| '[')]
+    #[token("]", |_| ']')]
+    SquareBracket(char),
 
-    #[token("]")]
-    CloseBracket,
+    #[token("{", |_| '{')]
+    #[token("}", |_| '}')]
+    CurlyBracket(char),
 
     #[regex("'''[^']*'''", priority = 3)]
     LiteralMutlilineString,
@@ -34,20 +39,22 @@ enum Token {
     #[regex("[\n|\r\n]")]
     EOL,
 
-    #[regex("[0-9]+", priority = 2)]
+    #[regex("[0-9\\.]+", priority = 5)]
     NumberLit,
 
-    #[token("true")]
-    TrueLit,
-
-    #[token("false")]
-    FalseLit,
+    #[token("true", |_| true)]
+    #[token("false", |_| false)]
+    BoolLit(bool),
 
     #[token(".")]
     Period,
 
     #[regex("\"[^\"]*\"", priority = 2)]
     QuotedString,
+}
+
+pub fn lex(input: &str) -> logos::Lexer<Token> {
+    Token::lexer(input)
 }
 
 #[cfg(test)]
@@ -134,7 +141,7 @@ mod tests {
     #[test]
     fn lex4() {
         test_lex(
-             r#"
+            r#"
              """multi line test
   please parse these newlines
    """ = '''
@@ -143,9 +150,72 @@ me too!
             "#,
             vec![
                 (Token::EOL, "\n"),
-                (Token::MutlilineString, "\"\"\"multi line test\n  please parse these newlines\n   \"\"\""),
+                (
+                    Token::MutlilineString,
+                    "\"\"\"multi line test\n  please parse these newlines\n   \"\"\"",
+                ),
                 (Token::Equals, "="),
-                (Token::LiteralMutlilineString, "'''\nme too!\n            '''"),
+                (
+                    Token::LiteralMutlilineString,
+                    "'''\nme too!\n            '''",
+                ),
+                (Token::EOL, "\n"),
+            ],
+        );
+    }
+
+    #[test]
+    fn lex5() {
+        test_lex(
+            r#"
+             
+numbers = [ 0.1, 0.2, 0.5, 1, 2, 5 ]
+contributors = [
+  "Foo Bar <foo@example.com>",
+  { name = "Baz Qux", email = "bazqux@example.com", url = "https://example.com/bazqux" }
+]
+            "#,
+            vec![
+                (Token::EOL, "\n"),
+                (Token::EOL, "\n"),
+                (Token::BareString, "numbers"),
+                (Token::Equals, "="),
+                (Token::SquareBracket('['), "["),
+                (Token::NumberLit, "0.1"),
+                (Token::Comma, ","),
+                (Token::NumberLit, "0.2"),
+                (Token::Comma, ","),
+                (Token::NumberLit, "0.5"),
+                (Token::Comma, ","),
+                (Token::NumberLit, "1"),
+                (Token::Comma, ","),
+                (Token::NumberLit, "2"),
+                (Token::Comma, ","),
+                (Token::NumberLit, "5"),
+                (Token::SquareBracket(']'), "]"),
+                (Token::EOL, "\n"),
+                (Token::BareString, "contributors"),
+                (Token::Equals, "="),
+                (Token::SquareBracket('['), "["),
+                (Token::EOL, "\n"),
+                (Token::QuotedString, "\"Foo Bar <foo@example.com>\""),
+                (Token::Comma, ","),
+                (Token::EOL, "\n"),
+                (Token::CurlyBracket('{'), "{"),
+                (Token::BareString, "name"),
+                (Token::Equals, "="),
+                (Token::QuotedString, "\"Baz Qux\""),
+                (Token::Comma, ","),
+                (Token::BareString, "email"),
+                (Token::Equals, "="),
+                (Token::QuotedString, "\"bazqux@example.com\""),
+                (Token::Comma, ","),
+                (Token::BareString, "url"),
+                (Token::Equals, "="),
+                (Token::QuotedString, "\"https://example.com/bazqux\""),
+                (Token::CurlyBracket('}'), "}"),
+                (Token::EOL, "\n"),
+                (Token::SquareBracket(']'), "]"),
                 (Token::EOL, "\n"),
             ],
         );
