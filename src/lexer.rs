@@ -1,6 +1,14 @@
 use logos::Logos;
 
-#[derive(Logos, Debug, PartialEq)]
+pub type Lexer = logos::Lexer<Token>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BracketType {
+    Open,
+    Close,
+}
+
+#[derive(Logos, Debug, PartialEq, Eq)]
 pub enum Token {
     #[regex("[A-Za-z0-9_-]+")]
     BareString,
@@ -22,13 +30,13 @@ pub enum Token {
     #[regex("'[^']*'")]
     LiteralString,
 
-    #[token("[", |_| '[')]
-    #[token("]", |_| ']')]
-    SquareBracket(char),
+    #[token("[", |_| BracketType::Open)]
+    #[token("]", |_| BracketType::Close)]
+    SquareBracket(BracketType),
 
-    #[token("{", |_| '{')]
-    #[token("}", |_| '}')]
-    CurlyBracket(char),
+    #[token("{", |_| BracketType::Open)]
+    #[token("}", |_| BracketType::Close)]
+    CurlyBracket(BracketType),
 
     #[regex("'''[^']*'''", priority = 3)]
     LiteralMutlilineString,
@@ -53,7 +61,7 @@ pub enum Token {
     QuotedString,
 }
 
-pub fn lex(input: &str) -> logos::Lexer<Token> {
+pub fn lex<'a>(input: &'a str) -> logos::Lexer<'a, Token> {
     Token::lexer(input)
 }
 
@@ -219,5 +227,82 @@ contributors = [
                 (Token::EOL, "\n"),
             ],
         );
+    }
+}
+
+/// Taken from core::iter::Peekable but with the ability to get the inner iterator
+#[derive(Clone, Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct Peekable<I: Iterator> {
+    iter: I,
+    /// Remember a peeked value, even if it was None.
+    peeked: Option<Option<I::Item>>,
+}
+
+impl<I: Iterator> Peekable<I> {
+    fn new(iter: I) -> Peekable<I> {
+        Peekable { iter, peeked: None }
+    }
+}
+
+// Peekable must remember if a None has been seen in the `.peek()` method.
+// It ensures that `.peek(); .peek();` or `.peek(); .next();` only advances the
+// underlying iterator at most once. This does not by itself make the iterator
+// fused.
+impl<I: Iterator> Iterator for Peekable<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<I::Item> {
+        match self.peeked.take() {
+            Some(v) => v,
+            None => self.iter.next(),
+        }
+    }
+
+    fn count(mut self) -> usize {
+        match self.peeked.take() {
+            Some(None) => 0,
+            Some(Some(_)) => 1 + self.iter.count(),
+            None => self.iter.count(),
+        }
+    }
+
+    fn nth(&mut self, n: usize) -> Option<I::Item> {
+        match self.peeked.take() {
+            Some(None) => None,
+            Some(v @ Some(_)) if n == 0 => v,
+            Some(Some(_)) => self.iter.nth(n - 1),
+            None => self.iter.nth(n),
+        }
+    }
+
+    fn last(mut self) -> Option<I::Item> {
+        let peek_opt = match self.peeked.take() {
+            Some(None) => return None,
+            Some(v) => v,
+            None => None,
+        };
+        self.iter.last().or(peek_opt)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let peek_len = match self.peeked {
+            Some(None) => return (0, Some(0)),
+            Some(Some(_)) => 1,
+            None => 0,
+        };
+        let (lo, hi) = self.iter.size_hint();
+        let lo = lo.saturating_add(peek_len);
+        let hi = match hi {
+            Some(x) => x.checked_add(peek_len),
+            None => None,
+        };
+        (lo, hi)
+    }
+}
+
+impl<I: Iterator> Peekable<I> {
+    fn inner<'a>(&'a mut self) -> &'a mut I {
+        &mut self.iter
     }
 }

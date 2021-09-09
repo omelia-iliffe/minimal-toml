@@ -9,6 +9,6 @@
 //normal (usually tier 1) hardware
 #![cfg_attr(not(test), no_std)]
 
+mod de;
 mod lexer;
-mod parser;
-
+mod error;
