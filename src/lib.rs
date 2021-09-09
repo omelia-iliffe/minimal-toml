@@ -12,3 +12,5 @@
 mod de;
 mod lexer;
 mod error;
+
+pub use de::from_str;

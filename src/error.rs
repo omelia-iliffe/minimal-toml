@@ -22,12 +22,13 @@ pub enum Expected {
     RValue,
     Bool,
     String,
+    MapStart,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
-    span: core::ops::Range<usize>,
-    kind: ErrorKind,
+    pub span: core::ops::Range<usize>,
+    pub kind: ErrorKind,
 }
 
 impl Error {
@@ -35,6 +36,13 @@ impl Error {
         Self {
             span: lexer.span(),
             kind,
+        }
+    }
+
+    pub fn unexpected(lexer: &logos::Lexer<crate::lexer::Token>, expected: Expected) -> Self {
+        Self {
+            span: lexer.span(),
+            kind: ErrorKind::UnexpectedToken(expected),
         }
     }
 }
@@ -50,7 +58,7 @@ impl de::Error for Error {
         let mut buf = [0u8; 64];
         let offset = {
             let mut wrapper = Wrapper::new(&mut buf);
-            write!(&mut wrapper, "{}", msg);
+            let _ = write!(&mut wrapper, "{}", msg);
             wrapper.offset
         };
 

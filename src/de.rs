@@ -1,12 +1,11 @@
 use core::str::FromStr;
 use serde::de::{
-    Deserialize, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess,
-    VariantAccess, Visitor,
+    Deserialize, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor,
 };
 use serde::Deserializer as SerdeDeserializer;
 
 use crate::error::{Error, ErrorKind, Expected};
-use crate::lexer::{BracketType, BracketType::*, Lexer, Peekable, Token};
+use crate::lexer::{self, BracketType, BracketType::*, Lexer, Peekable, Token};
 
 pub struct Deserializer<'de> {
     // This string starts with the input data and characters are truncated off
@@ -19,12 +18,21 @@ impl<'de> Deserializer<'de> {
     pub fn from_str(input: &'de str) -> Self {
         Deserializer {
             input,
-            tokens: Peekable::new(Lexer::new(input)),
+            tokens: Peekable::new(lexer::lex(input)),
         }
     }
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+#[cfg(test)]
+use println as p;
+
+#[cfg(not(test))]
+macro_rules! p {
+    () => {};
+    ($($arg:tt)*) => {};
+}
 
 pub fn from_str<'a, T>(s: &'a str) -> Result<T>
 where
@@ -49,23 +57,13 @@ macro_rules! expect_token {
 }
 
 impl<'de> Deserializer<'de> {
-    fn deserialize_assignment<V>(&mut self, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        match self.next()? {
-            Token::BareString => {}
-            _ => unimplemented!(),
-        }
-        expect_token!(self, Token::Equals, Expected::Token(Token::Equals));
-        self.deserialize_r_value(visitor)
-    }
-
     fn deserialize_r_value<V>(&mut self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        match self.peek()? {
+        let token = self.peek()?;
+        p!("r value token: {:?}", token);
+        match token {
             Token::QuotedString => self.deserialize_str(visitor),
             Token::LiteralString => self.deserialize_str(visitor),
             Token::MutlilineString => self.deserialize_str(visitor),
@@ -79,9 +77,9 @@ impl<'de> Deserializer<'de> {
         return Err(Error::new(&self.tokens.inner(), kind));
     }
 
-    fn peek<'a>(&'a mut self) -> Result<&'a Token> {
+    fn peek<'a>(&'a mut self) -> Result<Token> {
         match self.tokens.peek() {
-            Some(t) => Ok(t),
+            Some(t) => Ok(t.clone()),
             None => self.error(ErrorKind::MissingToken),
         }
     }
@@ -94,7 +92,7 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_string(&mut self) -> Result<&'de str> {
-        self.next()?;
+        self.peek()?;
         let base = self.tokens.inner().slice();
         let base_span = self.tokens.inner().span();
         let span = match self.next()? {
@@ -106,7 +104,7 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_bool(&mut self) -> Result<bool> {
-        expect_token!(self, Token::BoolLit(_), Expected::Bool);
+        //expect_token!(self, Token::BoolLit(_), Expected::Bool);
         match self.next()? {
             Token::BoolLit(value) => Ok(value),
             _ => self.error(ErrorKind::UnexpectedToken(Expected::Bool)),
@@ -116,7 +114,7 @@ impl<'de> Deserializer<'de> {
 
 macro_rules! deserialize_int_from_str {
     ($self:ident, $visitor:ident, $typ:ident, $visit_fn:ident) => {{
-        $self.next();
+        $self.next()?;
         let s = $self.tokens.inner().slice();
         let v = $typ::from_str(s)
             .map_err(|e| Error::new($self.tokens.inner(), ErrorKind::InvalidInteger(e)))?;
@@ -127,7 +125,7 @@ macro_rules! deserialize_int_from_str {
 
 macro_rules! deserialize_float_from_str {
     ($self:ident, $visitor:ident, $typ:ident, $visit_fn:ident) => {{
-        $self.next();
+        $self.next()?;
         let s = $self.tokens.inner().slice();
         let v = $typ::from_str(s)
             .map_err(|e| Error::new($self.tokens.inner(), ErrorKind::InvalidFloat(e)))?;
@@ -145,15 +143,23 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        match self.peek()? {
-            Token::EOL | Token::Comment => self.deserialize_any(visitor),
+        unimplemented!()
+    }
+    /*
+        let token = self.peek()?;
+        p!("Any got token {:?}", token);
+        match token {
+            Token::EOL | Token::Comment => {
+                self.next().unwrap();
+                self.deserialize_any(visitor)
+            }
             Token::SquareBracket(Open) => self.deserialize_map(visitor),
             Token::BareString => self.deserialize_assignment(visitor),
             Token::QuotedString => self.deserialize_assignment(visitor),
             Token::Error => self.error(ErrorKind::UnknownToken),
             _ => self.error(ErrorKind::UnexpectedToken(Expected::LineStart)),
         }
-    }
+    }*/
 
     // Uses the `parse_bool` parsing function defined above to read the JSON
     // identifier `true` or `false` from the input.
@@ -378,19 +384,30 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        expect_token!(
-            self,
-            Token::CurlyBracket(BracketType::Open),
-            Expected::Token(Token::CurlyBracket(BracketType::Open))
-        );
+        let token = self.peek()?;
+        let value = match token {
+            Token::BareString | Token::QuotedString => {
+                //Key-value pairs
+                let value = visitor.visit_map(KeyValuePairs::new(&mut self))?;
+
+                value
+            }
+            Token::CurlyBracket(BracketType::Open) => {
+                //Literal one line map
+                let value = visitor.visit_map(CommaSeparated::new(&mut self))?;
+                // Parse the closing bracket of the sequence.
+                expect_token!(
+                    self,
+                    Token::CurlyBracket(BracketType::Close),
+                    Expected::Token(Token::CurlyBracket(BracketType::Close))
+                );
+
+                value
+            }
+            _ => return Err(Error::unexpected(self.tokens.inner(), Expected::MapStart)),
+        };
+        p!("Map start: {:?}", token);
         // Give the visitor access to each element of the sequence.
-        let value = visitor.visit_map(CommaSeparated::new(&mut self))?;
-        // Parse the closing bracket of the sequence.
-        expect_token!(
-            self,
-            Token::CurlyBracket(BracketType::Close),
-            Expected::Token(Token::CurlyBracket(BracketType::Close))
-        );
 
         Ok(value)
     }
@@ -482,7 +499,7 @@ struct CommaSeparated<'a, 'de: 'a> {
 
 impl<'a, 'de> CommaSeparated<'a, 'de> {
     fn new(de: &'a mut Deserializer<'de>) -> Self {
-        CommaSeparated { de, first: true }
+        Self { de, first: true }
     }
 }
 
@@ -548,13 +565,52 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
     }
 }
 
+struct KeyValuePairs<'a, 'de: 'a> {
+    de: &'a mut Deserializer<'de>,
+}
+
+impl<'a, 'de> KeyValuePairs<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        Self { de }
+    }
+}
+
+impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
+    type Error = Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
+    where
+        K: DeserializeSeed<'de>,
+    {
+        let de_self = &mut self.de;
+        let token = de_self.next()?;
+        p!("Key: {:?}", token);
+        match token {
+            Token::BareString => {}
+            _ => unimplemented!(),
+        }
+        // Deserialize a map key.
+        seed.deserialize(&mut *self.de).map(Some)
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
+    where
+        V: DeserializeSeed<'de>,
+    {
+        let de_self = &mut self.de;
+        expect_token!(de_self, Token::Equals, Expected::Token(Token::Equals));
+        // Deserialize a map value.
+        seed.deserialize(&mut *self.de)
+    }
+}
+
 struct Enum<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
 }
 
 impl<'a, 'de> Enum<'a, 'de> {
     fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Enum { de }
+        Self { de }
     }
 }
 
@@ -625,23 +681,64 @@ mod tests {
     use super::*;
     use serde::Deserialize;
 
+    fn expect_output<'de, T>(input: &'static str, expected: T)
+    where
+        T: std::fmt::Debug + PartialEq + Deserialize<'de>,
+    {
+        let v = match from_str(input) {
+            Err(err) => {
+                let draw_range = 16;
+                let start = std::cmp::max(0isize, err.span.start as isize - draw_range) as usize;
+                let end = std::cmp::min(input.len(), err.span.end + draw_range as usize);
+                println!("Error in token:");
+
+                let dots = if start != 0 {
+                    print!("...");
+                    3
+                } else {
+                    0
+                };
+                let replaced = input[start..end].replace('\n', "|");
+                print!("{}", replaced);
+                if end != input.len() {
+                    print!("...");
+                }
+                println!();
+
+                for _ in 0..(err.span.start - start + dots) {
+                    print!(" ");
+                }
+                for _ in err.span.clone().into_iter() {
+                    print!("^");
+                }
+                println!();
+                panic!("Test failed: {}", err);
+            }
+            Ok(v) => v,
+        };
+        assert_eq!(expected, v);
+    }
+
     #[test]
     fn test_struct() {
         #[derive(Deserialize, PartialEq, Debug)]
         struct Test {
             int: u32,
-            seq: Vec<String>,
+            f: f32,
+            ok: bool,
         }
 
-        let j = r#"{"int":1,"seq":["a","b"]}"#;
-        let expected = Test {
-            int: 1,
-            seq: vec!["a".to_owned(), "b".to_owned()],
-        };
-        assert_eq!(expected, from_str(j).unwrap());
+        expect_output(
+            "int = 1\n f = 1.0\n ok = true                          ",
+            Test {
+                int: 1,
+                f: 1.0,
+                ok: true,
+            },
+        );
     }
 
-    #[test]
+    //#[test]
     fn test_enum() {
         #[derive(Deserialize, PartialEq, Debug)]
         enum E {
