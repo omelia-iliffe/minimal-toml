@@ -1,4 +1,4 @@
-use serde::ser;
+use serde::de;
 
 use core::fmt::Display;
 use core::fmt::{self, Write};
@@ -7,6 +7,8 @@ use core::fmt::{self, Write};
 pub enum ErrorKind {
     UnknownToken,
     UnexpectedToken(Expected),
+    InvalidInteger(core::num::ParseIntError),
+    InvalidFloat(core::num::ParseFloatError),
     TableAlreadyDefined,
     TrailingCharacters,
     MissingToken,
@@ -37,15 +39,24 @@ impl Error {
     }
 }
 
-impl ser::Error for Error {
+#[cfg(test)]
+impl std::error::Error for Error {}
+
+#[cfg(not(test))]
+impl serde::ser::StdError for Error {}
+
+impl de::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         let mut buf = [0u8; 64];
-        let mut wrapper = Wrapper::new(&mut buf);
-        write!(&mut wrapper, "{}", msg);
+        let offset = {
+            let mut wrapper = Wrapper::new(&mut buf);
+            write!(&mut wrapper, "{}", msg);
+            wrapper.offset
+        };
 
         Error {
             span: 0..0,
-            kind: ErrorKind::Custom(buf, wrapper.offset),
+            kind: ErrorKind::Custom(buf, offset),
         }
     }
 }
@@ -57,10 +68,7 @@ impl core::fmt::Display for Error {
 }
 
 impl Error {
-    pub fn end<'de>(
-        de: &crate::de::Deserializer<'de>,
-        kind: ErrorKind,
-    ) -> Error {
+    pub fn end<'de>(de: &crate::de::Deserializer<'de>, kind: ErrorKind) -> Error {
         Error {
             span: de.input.len()..de.input.len(),
             kind,

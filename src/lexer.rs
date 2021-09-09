@@ -1,14 +1,14 @@
 use logos::Logos;
 
-pub type Lexer = logos::Lexer<Token>;
+pub type Lexer<'a> = logos::Lexer<'a, Token>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BracketType {
     Open,
     Close,
 }
 
-#[derive(Logos, Debug, PartialEq, Eq)]
+#[derive(Logos, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Token {
     #[regex("[A-Za-z0-9_-]+")]
     BareString,
@@ -188,7 +188,7 @@ contributors = [
                 (Token::EOL, "\n"),
                 (Token::BareString, "numbers"),
                 (Token::Equals, "="),
-                (Token::SquareBracket('['), "["),
+                (Token::SquareBracket(BracketType::Open), "["),
                 (Token::NumberLit, "0.1"),
                 (Token::Comma, ","),
                 (Token::NumberLit, "0.2"),
@@ -200,16 +200,16 @@ contributors = [
                 (Token::NumberLit, "2"),
                 (Token::Comma, ","),
                 (Token::NumberLit, "5"),
-                (Token::SquareBracket(']'), "]"),
+                (Token::SquareBracket(BracketType::Close), "]"),
                 (Token::EOL, "\n"),
                 (Token::BareString, "contributors"),
                 (Token::Equals, "="),
-                (Token::SquareBracket('['), "["),
+                (Token::SquareBracket(BracketType::Open), "["),
                 (Token::EOL, "\n"),
                 (Token::QuotedString, "\"Foo Bar <foo@example.com>\""),
                 (Token::Comma, ","),
                 (Token::EOL, "\n"),
-                (Token::CurlyBracket('{'), "{"),
+                (Token::CurlyBracket(BracketType::Open), "{"),
                 (Token::BareString, "name"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"Baz Qux\""),
@@ -221,9 +221,9 @@ contributors = [
                 (Token::BareString, "url"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"https://example.com/bazqux\""),
-                (Token::CurlyBracket('}'), "}"),
+                (Token::CurlyBracket(BracketType::Close), "}"),
                 (Token::EOL, "\n"),
-                (Token::SquareBracket(']'), "]"),
+                (Token::SquareBracket(BracketType::Close), "]"),
                 (Token::EOL, "\n"),
             ],
         );
@@ -240,7 +240,7 @@ pub struct Peekable<I: Iterator> {
 }
 
 impl<I: Iterator> Peekable<I> {
-    fn new(iter: I) -> Peekable<I> {
+    pub fn new(iter: I) -> Peekable<I> {
         Peekable { iter, peeked: None }
     }
 }
@@ -302,7 +302,18 @@ impl<I: Iterator> Iterator for Peekable<I> {
 }
 
 impl<I: Iterator> Peekable<I> {
-    fn inner<'a>(&'a mut self) -> &'a mut I {
+    pub fn inner<'a>(&'a self) -> &'a I {
+        &self.iter
+    }
+
+    pub fn inner_mut<'a>(&'a mut self) -> &'a mut I {
         &mut self.iter
+    }
+}
+
+impl<I: Iterator> Peekable<I> {
+    pub fn peek<'a>(&'a mut self) -> Option<&'a I::Item> {
+        let iter = &mut self.iter;
+        self.peeked.get_or_insert_with(|| iter.next()).as_ref()
     }
 }
