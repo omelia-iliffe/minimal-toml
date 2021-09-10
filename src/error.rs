@@ -19,10 +19,11 @@ pub enum ErrorKind {
 pub enum Expected {
     Token(crate::lexer::Token),
     LineStart,
-    RValue,
+    Value,
     Bool,
     String,
     MapStart,
+    EolOrEof,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,7 +72,23 @@ impl de::Error for Error {
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self))
+        f.write_fmt(format_args!("{}", self.kind))
+    }
+}
+
+impl core::fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let s = match self {
+            ErrorKind::UnknownToken => "",
+            ErrorKind::UnexpectedToken(expected) => return f.write_fmt(format_args!("UnexpectedToken - Expected: {:?}", expected)),
+            ErrorKind::InvalidInteger(parse_err) => return f.write_fmt(format_args!("Failed to parse int: {:?}", parse_err)),
+            ErrorKind::InvalidFloat(parse_err) => return f.write_fmt(format_args!("Failed to parse float: {:?}", parse_err)),
+            ErrorKind::TableAlreadyDefined => "Table already defined",
+            ErrorKind::TrailingCharacters => "Trailing characters",
+            ErrorKind::MissingToken => "Missing token",
+            ErrorKind::Custom(bytes, len) => core::str::from_utf8(&bytes[..*len]).unwrap(),
+        };
+        f.write_str(s)
     }
 }
 

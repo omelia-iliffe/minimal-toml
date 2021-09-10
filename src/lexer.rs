@@ -45,9 +45,9 @@ pub enum Token {
     MutlilineString,
 
     #[regex("[\n|\r\n]")]
-    EOL,
+    Eol,
 
-    #[regex("[0-9\\.]+", priority = 5)]
+    #[regex("[\\-0-9\\.]+", priority = 5)]
     NumberLit,
 
     #[token("true", |_| true)]
@@ -91,13 +91,13 @@ mod tests {
             "#,
             vec![
                 (Token::Comment, "#bare_str"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::Comment, "# This is a comment"),
-                (Token::EOL, "\n"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
+                (Token::Eol, "\n"),
                 (Token::Comment, "#^ Empty line above"),
-                (Token::EOL, "\n"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
+                (Token::Eol, "\n"),
             ],
         );
     }
@@ -111,19 +111,19 @@ mod tests {
     "127.0.0.1" = 15
             "#,
             vec![
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::BareString, "server"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"test\""),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::QuotedString, "\"my fav number\""),
                 (Token::Equals, "="),
                 (Token::NumberLit, "7"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::QuotedString, "\"127.0.0.1\""),
                 (Token::Equals, "="),
                 (Token::NumberLit, "15"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
             ],
         );
     }
@@ -136,11 +136,11 @@ mod tests {
                 (Token::BareString, "test"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"test\""),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::BareString, "a"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::Comment, "#ABC"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::BareString, "a"),
             ],
         );
@@ -157,7 +157,7 @@ me too!
             '''
             "#,
             vec![
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (
                     Token::MutlilineString,
                     "\"\"\"multi line test\n  please parse these newlines\n   \"\"\"",
@@ -167,7 +167,7 @@ me too!
                     Token::LiteralMutlilineString,
                     "'''\nme too!\n            '''",
                 ),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
             ],
         );
     }
@@ -184,8 +184,8 @@ contributors = [
 ]
             "#,
             vec![
-                (Token::EOL, "\n"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
+                (Token::Eol, "\n"),
                 (Token::BareString, "numbers"),
                 (Token::Equals, "="),
                 (Token::SquareBracket(BracketType::Open), "["),
@@ -201,14 +201,14 @@ contributors = [
                 (Token::Comma, ","),
                 (Token::NumberLit, "5"),
                 (Token::SquareBracket(BracketType::Close), "]"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::BareString, "contributors"),
                 (Token::Equals, "="),
                 (Token::SquareBracket(BracketType::Open), "["),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::QuotedString, "\"Foo Bar <foo@example.com>\""),
                 (Token::Comma, ","),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::CurlyBracket(BracketType::Open), "{"),
                 (Token::BareString, "name"),
                 (Token::Equals, "="),
@@ -222,9 +222,9 @@ contributors = [
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"https://example.com/bazqux\""),
                 (Token::CurlyBracket(BracketType::Close), "}"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
                 (Token::SquareBracket(BracketType::Close), "]"),
-                (Token::EOL, "\n"),
+                (Token::Eol, "\n"),
             ],
         );
     }
