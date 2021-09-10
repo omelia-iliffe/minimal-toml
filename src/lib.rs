@@ -10,7 +10,8 @@
 #![cfg_attr(not(test), no_std)]
 
 mod de;
-mod lexer;
 mod error;
+mod lexer;
 
 pub use de::from_str;
+pub use error::{Error, ErrorKind, Expected};
