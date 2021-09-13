@@ -1,6 +1,7 @@
 use core::str::FromStr;
 use serde::de::{
-    Deserialize, DeserializeSeed, EnumAccess, MapAccess, SeqAccess, VariantAccess, Visitor,
+    Deserialize, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess,
+    VariantAccess, Visitor,
 };
 use serde::Deserializer as SerdeDeserializer;
 
@@ -27,14 +28,11 @@ impl<'de> Deserializer<'de> {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[cfg(test)]
+#[cfg(feature = "std")]
 use println as p;
 
-#[cfg(not(test))]
-macro_rules! p {
-    () => {};
-    ($($arg:tt)*) => {};
-}
+#[cfg(not(feature = "std"))]
+use libc_print::libc_println as p;
 
 macro_rules! dbg {
     () => {
@@ -69,7 +67,7 @@ macro_rules! expect_token {
     ($self:ident, $pattern:pat_param, $expected:expr) => {
         match $self.next()? {
             $pattern => {}
-            _ => return $self.error(ErrorKind::UnexpectedToken($expected)),
+            t => return $self.error(ErrorKind::UnexpectedToken(t, $expected)),
         }
     };
 }
@@ -79,7 +77,7 @@ macro_rules! expect_eol_or_eof {
         match $self.next() {
             Ok(token) => match token {
                 Token::Eol => {}
-                _ => return $self.error(ErrorKind::UnexpectedToken(Expected::EolOrEof)),
+                t => return $self.error(ErrorKind::UnexpectedToken(t, Expected::EolOrEof)),
             },
             Err(_eof) => {}
         }
@@ -111,14 +109,20 @@ impl<'de> Deserializer<'de> {
 
     fn peek<'a>(&'a mut self) -> Result<Token> {
         match self.tokens.peek() {
-            Some(t) => Ok(t.clone()),
+            Some(t) => match t {
+                Token::Error => self.error(ErrorKind::FailedToLex),
+                t => Ok(t.clone()),
+            },
             None => self.error(ErrorKind::MissingToken),
         }
     }
 
     fn next(&mut self) -> Result<Token> {
         match self.tokens.next() {
-            Some(t) => Ok(t),
+            Some(t) => match t {
+                Token::Error => self.error(ErrorKind::FailedToLex),
+                t => Ok(t),
+            },
             None => self.error(ErrorKind::MissingToken),
         }
     }
@@ -144,7 +148,7 @@ impl<'de> Deserializer<'de> {
             Token::BareString => base,
             Token::QuotedString => &base[1..base_span.len() - 1],
             Token::MutlilineString => &base[3..base_span.len() - 3],
-            _ => return self.error(ErrorKind::UnexpectedToken(Expected::String)),
+            t => return self.error(ErrorKind::UnexpectedToken(t, Expected::String)),
         };
         //TODO: Check if there are any escape sequences because we can't support them
         p!("De str: {}", span);
@@ -158,7 +162,7 @@ impl<'de> Deserializer<'de> {
                 p!("Got bool {}", value);
                 Ok(value)
             }
-            _ => self.error(ErrorKind::UnexpectedToken(Expected::Bool)),
+            t => self.error(ErrorKind::UnexpectedToken(t, Expected::Bool)),
         }
     }
 }
@@ -236,7 +240,13 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
                 value
             }
             */
-            _ => return Err(Error::unexpected(self.tokens.inner(), Expected::MapStart)),
+            t => {
+                return Err(Error::unexpected(
+                    self.tokens.inner(),
+                    t,
+                    Expected::MapStart,
+                ))
+            }
         };
         Ok(value)
     }
@@ -535,15 +545,42 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_enum<V>(
         self,
-        _name: &'static str,
+        enum_name: &'static str,
         _variants: &'static [&'static str],
-        _visitor: V,
+        visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
-        unimplemented!()
+        //An enum is in the format <Enum name> = "Normal_Variant"
+        //Or <Enum Name> = {
+        let name = self.parse_string()?;
+        assert_eq!(name, enum_name);
+        p!("In enum: {}", name);
+        expect_token!(self, Token::Equals, Expected::Token(Token::Equals));
+        let initial_token = self.peek()?;
+        match initial_token {
+            Token::QuotedString => visitor.visit_enum(self.parse_string()?.into_deserializer()),
+            Token::CurlyBracket(Open) | Token::SquareBracket(Open) => {
+                self.next().unwrap();
+                let value = visitor.visit_enum(Enum::new(self));
+                match initial_token {
+                    Token::CurlyBracket(Open) => expect_token!(
+                        self,
+                        Token::CurlyBracket(Close),
+                        Expected::Token(Token::CurlyBracket(Close))
+                    ),
+                    Token::SquareBracket(Open) => expect_token!(
+                        self,
+                        Token::SquareBracket(Close),
+                        Expected::Token(Token::SquareBracket(Close))
+                    ),
+                    _ => unreachable!(),
+                }
+                value
+            }
+            t => Err(Error::unexpected(self.tokens.inner(), t, Expected::Enum)),
+        }
         /*
         if self.peek_char()? == '"' {
             // Visit a unit variant.
@@ -774,7 +811,13 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 false
             }
             Token::BareString => true,
-            _ => return Err(Error::unexpected(de_self.tokens.inner(), Expected::Value)),
+            t => {
+                return Err(Error::unexpected(
+                    de_self.tokens.inner(),
+                    t,
+                    Expected::Value,
+                ))
+            }
         };
         let result = seed.deserialize(&mut *self.de);
         if self.de.depth <= 1 && allow_consume_whitespace {
@@ -893,7 +936,7 @@ impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        dbg!();
+        p!("In variant seed");
         let val = seed.deserialize(&mut *self.de)?;
 
         let de_self = &mut self.de;
@@ -940,5 +983,3 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
         SerdeDeserializer::deserialize_map(self.de, visitor)
     }
 }
-
-

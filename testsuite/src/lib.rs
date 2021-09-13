@@ -1,4 +1,8 @@
 
+mod struct_test;
+mod enum_test;
+mod bool_test;
+
 use minimal_toml::Error;
 use serde::Deserialize;
 
@@ -45,3 +49,4 @@ where
     };
     assert_eq!(expected, v);
 }
+

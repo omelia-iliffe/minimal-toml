@@ -3,27 +3,31 @@ use serde::de;
 use core::fmt::Display;
 use core::fmt::{self, Write};
 
+use crate::lexer::Token;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ErrorKind {
     UnknownToken,
-    UnexpectedToken(Expected),
+    UnexpectedToken(Token, Expected),
     InvalidInteger(core::num::ParseIntError),
     InvalidFloat(core::num::ParseFloatError),
     TableAlreadyDefined,
     TrailingCharacters,
     MissingToken,
     Custom([u8; 64], usize),
+    FailedToLex,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expected {
-    Token(crate::lexer::Token),
+    Token(Token),
     LineStart,
     Value,
     Bool,
     String,
     MapStart,
     EolOrEof,
+    Enum,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,17 +37,17 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn new(lexer: &logos::Lexer<crate::lexer::Token>, kind: ErrorKind) -> Self {
+    pub fn new(lexer: &logos::Lexer<Token>, kind: ErrorKind) -> Self {
         Self {
             span: lexer.span(),
             kind,
         }
     }
 
-    pub fn unexpected(lexer: &logos::Lexer<crate::lexer::Token>, expected: Expected) -> Self {
+    pub fn unexpected(lexer: &logos::Lexer<Token>, token: Token, expected: Expected) -> Self {
         Self {
             span: lexer.span(),
-            kind: ErrorKind::UnexpectedToken(expected),
+            kind: ErrorKind::UnexpectedToken(token, expected),
         }
     }
 }
@@ -80,13 +84,23 @@ impl core::fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let s = match self {
             ErrorKind::UnknownToken => "",
-            ErrorKind::UnexpectedToken(expected) => return f.write_fmt(format_args!("UnexpectedToken - Expected: {:?}", expected)),
-            ErrorKind::InvalidInteger(parse_err) => return f.write_fmt(format_args!("Failed to parse int: {:?}", parse_err)),
-            ErrorKind::InvalidFloat(parse_err) => return f.write_fmt(format_args!("Failed to parse float: {:?}", parse_err)),
+            ErrorKind::UnexpectedToken(token, expected) => {
+                return f.write_fmt(format_args!(
+                    "UnexpectedToken: {:?} - expected: {:?}",
+                    token, expected
+                ))
+            }
+            ErrorKind::InvalidInteger(parse_err) => {
+                return f.write_fmt(format_args!("Failed to parse int: {:?}", parse_err))
+            }
+            ErrorKind::InvalidFloat(parse_err) => {
+                return f.write_fmt(format_args!("Failed to parse float: {:?}", parse_err))
+            }
             ErrorKind::TableAlreadyDefined => "Table already defined",
             ErrorKind::TrailingCharacters => "Trailing characters",
             ErrorKind::MissingToken => "Missing token",
             ErrorKind::Custom(bytes, len) => core::str::from_utf8(&bytes[..*len]).unwrap(),
+            ErrorKind::FailedToLex => "Failed to lex",
         };
         f.write_str(s)
     }

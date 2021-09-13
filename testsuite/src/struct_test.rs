@@ -1,7 +1,5 @@
 use serde::Deserialize;
 
-mod common;
-
 #[test]
 fn struct1() {
     #[derive(Deserialize, PartialEq, Debug)]
@@ -11,7 +9,7 @@ fn struct1() {
         ok: bool,
     }
 
-    common::expect_output(
+    crate::expect_output(
         "int = 1\n f = 1.0\n ok = true",
         Test {
             int: 1,
@@ -139,7 +137,7 @@ fn struct2() {
     };
 
     let v: Flags = match minimal_toml::from_str(input) {
-        Err(err) => common::print_token_error(input, err),
+        Err(err) => crate::print_token_error(input, err),
         Ok(v) => v,
     };
     assert_eq!(expected, v);

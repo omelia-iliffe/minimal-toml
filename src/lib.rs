@@ -7,7 +7,7 @@
 
 //We are no std. But we still want the standard library for testing since we only run tests on
 //normal (usually tier 1) hardware
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 mod de;
 mod error;

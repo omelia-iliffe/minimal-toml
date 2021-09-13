@@ -1,0 +1,9 @@
+[package]
+name = "testsuite"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+minimal-toml = { path = "../", features = ["std"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+

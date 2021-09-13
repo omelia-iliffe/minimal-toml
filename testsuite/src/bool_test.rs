@@ -1,5 +1,4 @@
 
-mod common;
 use serde::Deserialize;
 
 #[test]
@@ -10,7 +9,7 @@ fn bool1() {
         b: bool,
     }
 
-    common::expect_output(r#"
+    crate::expect_output(r#"
 a = true
 b = false
     "#,
