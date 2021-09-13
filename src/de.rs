@@ -545,7 +545,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
 
     fn deserialize_enum<V>(
         self,
-        enum_name: &'static str,
+        _enum_name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
@@ -554,30 +554,10 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     {
         //An enum is in the format <Enum name> = "Normal_Variant"
         //Or <Enum Name> = {
-        let name = self.parse_string()?;
-        assert_eq!(name, enum_name);
-        p!("In enum: {}", name);
-        expect_token!(self, Token::Equals, Expected::Token(Token::Equals));
         let initial_token = self.peek()?;
         match initial_token {
-            Token::QuotedString => visitor.visit_enum(self.parse_string()?.into_deserializer()),
-            Token::CurlyBracket(Open) | Token::SquareBracket(Open) => {
-                self.next().unwrap();
-                let value = visitor.visit_enum(Enum::new(self));
-                match initial_token {
-                    Token::CurlyBracket(Open) => expect_token!(
-                        self,
-                        Token::CurlyBracket(Close),
-                        Expected::Token(Token::CurlyBracket(Close))
-                    ),
-                    Token::SquareBracket(Open) => expect_token!(
-                        self,
-                        Token::SquareBracket(Close),
-                        Expected::Token(Token::SquareBracket(Close))
-                    ),
-                    _ => unreachable!(),
-                }
-                value
+            Token::BareString | Token::QuotedString => {
+                visitor.visit_enum(self.parse_string()?.into_deserializer())
             }
             t => Err(Error::unexpected(self.tokens.inner(), t, Expected::Enum)),
         }

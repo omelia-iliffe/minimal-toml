@@ -6,4 +6,7 @@ edition = "2018"
 [dependencies]
 minimal-toml = { path = "../", features = ["std"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
+toml = "0.5"
+heapless = { version = "0.7", features = ["serde"] }
+rand = "0.8"
 

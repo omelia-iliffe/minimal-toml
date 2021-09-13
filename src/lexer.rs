@@ -30,6 +30,10 @@ pub enum Token {
     #[regex("'[^']*'")]
     LiteralString,
 
+    #[token("[[", |_| BracketType::Open)]
+    #[token("]]", |_| BracketType::Close)]
+    DoubleSquareBracket(BracketType),
+
     #[token("[", |_| BracketType::Open)]
     #[token("]", |_| BracketType::Close)]
     SquareBracket(BracketType),
@@ -74,7 +78,6 @@ mod tests {
 
         for (expected_token, expected_str) in expected_tokens {
             let token = lex.next();
-            println!("cmp: {} to {}", lex.slice().trim(), expected_str.trim());
             assert_eq!(token, Some(expected_token));
             assert_eq!(expected_str, lex.slice());
         }
@@ -225,6 +228,29 @@ contributors = [
                 (Token::Eol, "\n"),
                 (Token::SquareBracket(BracketType::Close), "]"),
                 (Token::Eol, "\n"),
+            ],
+        );
+    }
+
+    #[test]
+    fn lex6() {
+        test_lex(
+            r#"
+[[]]
+a = 3564
+b = false"#,
+            vec![
+                (Token::Eol, "\n"),
+                (Token::DoubleSquareBracket(BracketType::Open), "[["),
+                (Token::DoubleSquareBracket(BracketType::Close), "]]"),
+                (Token::Eol, "\n"),
+                (Token::BareString, "a"),
+                (Token::Equals, "="),
+                (Token::NumberLit, "3564"),
+                (Token::Eol, "\n"),
+                (Token::BareString, "b"),
+                (Token::Equals, "="),
+                (Token::BoolLit(false), "false"),
             ],
         );
     }

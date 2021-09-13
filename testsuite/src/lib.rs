@@ -1,12 +1,12 @@
-
-mod struct_test;
-mod enum_test;
 mod bool_test;
+mod enum_test;
+mod struct_test;
+mod array_test;
 
 use minimal_toml::Error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-pub fn print_token_error(input: &'static str, err: Error) -> ! {
+pub fn print_token_error(input: &str, err: Error) -> ! {
     let draw_range = 16;
     let start = std::cmp::max(0isize, err.span.start as isize - draw_range) as usize;
     let end = std::cmp::min(input.len(), err.span.end + draw_range as usize);
@@ -50,3 +50,19 @@ where
     assert_eq!(expected, v);
 }
 
+pub fn expect_with_toml_rs<'de, T>(value: &T)
+where
+    T: std::fmt::Debug + PartialEq + Deserialize<'de> + Serialize,
+{
+    let s = toml::to_string(value).expect("toml-rs failed to serialize value");
+    println!("==========\n\n\n{}\n\n\n==========", s);
+    let s_in = s.clone();
+    let s_in: &'de str = unsafe { std::mem::transmute(s_in.as_str()) };
+    {
+        let my_t: T = match minimal_toml::from_str(s_in) {
+            Err(err) => print_token_error(s.as_str(), err),
+            Ok(v) => v,
+        };
+        assert_eq!(value, &my_t);
+    }
+}
