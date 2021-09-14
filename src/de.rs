@@ -706,11 +706,18 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
 struct KeyValuePairs<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     first: bool,
+    expecting_array_of_tables: Option<&'a str>,
+    within_array_of_tables: Option<&'a str>,
 }
 
 impl<'a, 'de> KeyValuePairs<'a, 'de> {
     fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Self { de, first: true }
+        Self {
+            de,
+            first: true,
+            expecting_array_of_tables: None,
+            within_array_of_tables: None,
+        }
     }
 }
 
@@ -764,6 +771,42 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                     de_self,
                     Token::SquareBracket(Close),
                     Expected::Token(Token::SquareBracket(Close))
+                );
+                de_self.consume_whitespace_and_comments()?;
+
+                result
+            }
+            Token::DoubleSquareBracket(Open) => {
+                p!("Got square bracket open. First: {}", self.first);
+                //Table in format:
+                //[[...]]
+                //<element data>
+
+                //Consume [[
+                de_self.next().unwrap();
+                expect_token!(
+                    de_self,
+                    Token::BareString,
+                    Expected::Token(Token::BareString)
+                );
+                let name = de_self.tokens.inner().slice();
+                if let Some(current_array_name) = self.within_array_of_tables {
+                    if current_array_name == name {
+                        p!("Got different table of arrays");
+                        unimplemented!();
+                    }
+                }
+                p!("Got name of array of tables: {}", name);
+                self.expecting_array_of_tables = Some(name);
+                //Read string within [[...]]
+                let result = seed
+                    .deserialize(SingleStrDeserializer { s: name })
+                    .map(Some);
+
+                expect_token!(
+                    de_self,
+                    Token::DoubleSquareBracket(Close),
+                    Expected::Token(Token::DoubleSquareBracket(Close))
                 );
                 de_self.consume_whitespace_and_comments()?;
 
@@ -833,6 +876,67 @@ impl<'de, 'a> SerdeDeserializer<'de> for SingleStrDeserializer<'a> {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf option unit unit_struct newtype_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+struct TableOfArrays<'a, 'de: 'a> {
+    de: &'a mut Deserializer<'de>,
+    table_name: &'a str,
+}
+
+impl<'a, 'de> TableOfArrays<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>, table_name: &'de str) -> Self {
+        Self { de, table_name }
+    }
+}
+
+// `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
+// through elements of the sequence.
+impl<'de, 'a> SeqAccess<'de> for TableOfArrays<'a, 'de> {
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
+    where
+        T: DeserializeSeed<'de>,
+    {
+        let de_self = &mut self.de;
+        match de_self.tokens.peek() {
+            None => return Ok(None),
+            Some(Token::DoubleSquareBracket(Open)) => {}
+            _ => {
+                return Err(Error::unexpected(
+                    self.de.tokens.inner(),
+                    Token::DoubleSquareBracket(Open),
+                    Expected::Token(Token::DoubleSquareBracket(Open)),
+                ))
+            }
+        }
+        match de_self.tokens.double_peek() {
+            Some(Token::BareString) => {}
+            _ => {
+                return Err(Error::unexpected(
+                    self.de.tokens.inner(),
+                    Token::BareString,
+                    Expected::Token(Token::BareString),
+                ))
+            }
+        }
+        let name = de_self.tokens.inner().slice();
+        p!("Got inner table name {}", name);
+        if self.table_name == name {
+            p!("Got different table of arrays");
+            unimplemented!();
+        }
+        p!("Got name of array of tables: {}", name);
+
+        expect_token!(
+            de_self,
+            Token::DoubleSquareBracket(Close),
+            Expected::Token(Token::DoubleSquareBracket(Close))
+        );
+        
+        // Deserialize an array element (probably a struct)
+        seed.deserialize(&mut *self.de).map(Some)
     }
 }
 

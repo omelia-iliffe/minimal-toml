@@ -13,3 +13,9 @@ fn enum1() {
 
     crate::expect_with_toml_rs(&E::Unit);
 }
+
+
+my_enum = E = { type = "NewType", value = 1 }
+
+
+

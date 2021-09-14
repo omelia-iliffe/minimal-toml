@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn array1() {
@@ -19,20 +19,28 @@ fn array2() {
         b: bool,
         c: heapless::String<12>,
     }
-    let mut vec: heapless::Vec<Test, 16> = heapless::Vec::new();
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+    struct A {
+        stages: heapless::Vec<Test, 16>,
+    }
+    let mut a = A {
+        stages: heapless::Vec::new(),
+    };
     for _ in 0..16 {
-        crate::expect_with_toml_rs(&vec);
+        crate::expect_with_toml_rs(&a);
         let mut s: heapless::String<12> = heapless::String::new();
         let max = rand::thread_rng().gen_range(0..10);
         for _ in 0..max {
-            s.push(rand::thread_rng().gen::<u8>() as char).unwrap();
+            let u: u8 = rand::thread_rng().gen_range(32..127);
+            s.push(u as char).unwrap();
         }
         let t = Test {
             a: rand::thread_rng().gen(),
             b: rand::thread_rng().gen(),
             c: s,
         };
-        vec.push(t).unwrap();
+        a.stages.push(t).unwrap();
     }
-    crate::expect_with_toml_rs(&vec);
+    crate::expect_with_toml_rs(&a);
 }

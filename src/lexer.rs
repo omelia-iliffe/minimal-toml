@@ -69,8 +69,117 @@ pub fn lex<'a>(input: &'a str) -> logos::Lexer<'a, Token> {
     Token::lexer(input)
 }
 
+#[derive(Debug, Clone)]
+enum PeekedState<I> {
+    None,
+    Single(Option<I>),
+    Double(I, Option<I>),
+}
+
+impl<I> PeekedState<I> {
+    /// Takes a peeked value from inside this state returning it if there was one
+    fn take(&mut self) -> Option<I> {
+        let (i, new_self): (Option<I>, PeekedState<I>) = match self {
+            PeekedState::None => (None, PeekedState::None),
+            PeekedState::Single(i) => (*i, PeekedState::None),
+            PeekedState::Double(i1, i2) => (Some(*i1), PeekedState::Single(*i2)),
+        };
+        *self = new_self;
+        i
+    }
+}
+
+/// Taken from core::iter::Peekable but with the ability to get the inner iterator
+#[derive(Clone, Debug)]
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct Peekable<I: Iterator> {
+    iter: I,
+    /// Remember a peeked value, even if it was None.
+    state: PeekedState<I::Item>,
+}
+
+impl<I: Iterator> Peekable<I> {
+    pub fn new(iter: I) -> Peekable<I> {
+        Peekable {
+            iter,
+            state: PeekedState::None,
+        }
+    }
+}
+
+// Peekable must remember if a None has been seen in the `.peek()` method.
+// It ensures that `.peek(); .peek();` or `.peek(); .next();` only advances the
+// underlying iterator at most once. This does not by itself make the iterator
+// fused.
+impl<I: Iterator> Iterator for Peekable<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<I::Item> {
+        match self.state.take() {
+            Some(v) => Some(v),
+            None => self.iter.next(),
+        }
+    }
+}
+
+impl<I: Iterator> Peekable<I> {
+    pub fn inner<'a>(&'a self) -> &'a I {
+        &self.iter
+    }
+
+    pub fn inner_mut<'a>(&'a mut self) -> &'a mut I {
+        &mut self.iter
+    }
+}
+
+impl<I: Iterator> Peekable<I> {
+    pub fn peek<'a>(&'a mut self) -> Option<&'a I::Item> {
+        match self.state {
+            PeekedState::None => {
+                let i = self.iter.next();
+                self.state = PeekedState::Single(i);
+                match &self.state {
+                    PeekedState::Single(ref i) => i.as_ref(),
+                    _ => unreachable!(),
+                }
+            }
+            PeekedState::Single(i) => i.as_ref(),
+            PeekedState::Double(i, _) => Some(&i),
+        }
+    }
+
+    /// Panics if peek() returns none
+    pub fn double_peek<'a>(&'a mut self) -> Option<&'a I::Item> {
+        let state: PeekedState<I::Item> = match self.state {
+            PeekedState::None => {
+                let i1 = self
+                    .iter
+                    .next()
+                    .expect("Caller must ensure that peek returns Some first!");
+                let i2 = self.iter.next();
+                PeekedState::Double(i1, i2)
+            }
+            PeekedState::Single(i1) => {
+                let i1 = i1.expect("Caller must ensure that peek returns Some first!");
+
+                let i2 = self.iter.next();
+
+                PeekedState::Double(i1, i2)
+            }
+            PeekedState::Double(i1, i2) => PeekedState::Double(i1, i2),
+        };
+
+        self.state = state;
+        match &self.state {
+            PeekedState::Double(_, i2) => i2.as_ref(),
+            _ => unreachable!(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     fn test_lex(toml: &'static str, expected_tokens: Vec<(Token, &'static str)>) {
@@ -254,92 +363,17 @@ b = false"#,
             ],
         );
     }
-}
+    #[test]
+    fn test_single() {
+        let mut p: Peekable<_> = Peekable::new(0..5);
+        assert_ne!(p.peek(), Some(&0));
+        assert_ne!(p.peek(), Some(&0));
+        assert_ne!(p.peek(), Some(&0));
+        assert_ne!(p.next(), Some(0));
+        assert_ne!(p.next(), Some(1));
 
-/// Taken from core::iter::Peekable but with the ability to get the inner iterator
-#[derive(Clone, Debug)]
-#[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct Peekable<I: Iterator> {
-    iter: I,
-    /// Remember a peeked value, even if it was None.
-    peeked: Option<Option<I::Item>>,
-}
-
-impl<I: Iterator> Peekable<I> {
-    pub fn new(iter: I) -> Peekable<I> {
-        Peekable { iter, peeked: None }
-    }
-}
-
-// Peekable must remember if a None has been seen in the `.peek()` method.
-// It ensures that `.peek(); .peek();` or `.peek(); .next();` only advances the
-// underlying iterator at most once. This does not by itself make the iterator
-// fused.
-impl<I: Iterator> Iterator for Peekable<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<I::Item> {
-        match self.peeked.take() {
-            Some(v) => v,
-            None => self.iter.next(),
-        }
-    }
-
-    fn count(mut self) -> usize {
-        match self.peeked.take() {
-            Some(None) => 0,
-            Some(Some(_)) => 1 + self.iter.count(),
-            None => self.iter.count(),
-        }
-    }
-
-    fn nth(&mut self, n: usize) -> Option<I::Item> {
-        match self.peeked.take() {
-            Some(None) => None,
-            Some(v @ Some(_)) if n == 0 => v,
-            Some(Some(_)) => self.iter.nth(n - 1),
-            None => self.iter.nth(n),
-        }
-    }
-
-    fn last(mut self) -> Option<I::Item> {
-        let peek_opt = match self.peeked.take() {
-            Some(None) => return None,
-            Some(v) => v,
-            None => None,
-        };
-        self.iter.last().or(peek_opt)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let peek_len = match self.peeked {
-            Some(None) => return (0, Some(0)),
-            Some(Some(_)) => 1,
-            None => 0,
-        };
-        let (lo, hi) = self.iter.size_hint();
-        let lo = lo.saturating_add(peek_len);
-        let hi = match hi {
-            Some(x) => x.checked_add(peek_len),
-            None => None,
-        };
-        (lo, hi)
-    }
-}
-
-impl<I: Iterator> Peekable<I> {
-    pub fn inner<'a>(&'a self) -> &'a I {
-        &self.iter
-    }
-
-    pub fn inner_mut<'a>(&'a mut self) -> &'a mut I {
-        &mut self.iter
-    }
-}
-
-impl<I: Iterator> Peekable<I> {
-    pub fn peek<'a>(&'a mut self) -> Option<&'a I::Item> {
-        let iter = &mut self.iter;
-        self.peeked.get_or_insert_with(|| iter.next()).as_ref()
+        assert_ne!(p.peek(), Some(&2));
+        assert_ne!(p.peek(), Some(&2));
+        assert_ne!(p.next(), Some(2));
     }
 }
