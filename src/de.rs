@@ -230,56 +230,11 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     type Error = Error;
 
     // Entry point of parsing. Looks at token and decides what to do
-    fn deserialize_any<V>(mut self, visitor: V) -> Result<V::Value>
+    fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        panic!("Test");
-        self.consume_whitespace_and_comments()?;
-        let token = self.peek()?;
-        p2!(self, "Got any token: {:?}", token);
-        let value = match token {
-            /*
-            Token::BareString | Token::QuotedString => {
-                //Key-value pairs
-                p!("Visiting map based on {}", self.tokens.inner().slice());
-                visitor.visit_map(KeyValuePairs::new(&mut self))?
-            }
-            */
-            Token::CurlyBracket(Open) => {
-                //Literal one line map
-                self.depth += 1;
-                let value = visitor.visit_map(CommaSeparated::new(&mut self))?;
-                // Parse the closing bracket of the sequence.
-                expect_token!(
-                    self,
-                    Token::CurlyBracket(Close),
-                    Expected::Token(Token::CurlyBracket(Close))
-                );
-                self.depth -= 1;
-
-                value
-            }
-            /*
-            Token::SquareBracket(Open) => {
-                //Field is a substruct Eg:
-                //[wg]
-                //field1 = 7
-
-                let value = visitor.visit_map(SubStructSeparated::new(&mut self))?;
-                // Parse the closing bracket of the sequence.
-                expect_token!(
-                    self,
-                    Token::SquareBracket(Close),
-                    Expected::Token(Token::SquareBracket(Close))
-                );
-
-                value
-            }
-            */
-            t => return Err(Error::unexpected(self.as_mut(), t, Expected::MapStart)),
-        };
-        Ok(value)
+        unimplemented!()
     }
 
     /*
@@ -1053,12 +1008,6 @@ impl<'de, 'a> MapAccess<'de> for SubStructSeparated<'a, 'de> {
 
 struct Enum<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
-}
-
-impl<'a, 'de> Enum<'a, 'de> {
-    fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Self { de }
-    }
 }
 
 // `EnumAccess` is provided to the `Visitor` to give it the ability to determine
