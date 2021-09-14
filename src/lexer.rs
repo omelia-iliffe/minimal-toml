@@ -65,7 +65,7 @@ pub enum Token {
     QuotedString,
 }
 
-pub fn lex<'a>(input: &'a str) -> logos::Lexer<'a, Token> {
+pub fn lex(input: &str) -> logos::Lexer<'_, Token> {
     Token::lexer(input)
 }
 
@@ -133,17 +133,17 @@ impl<I: Iterator> Iterator for Peekable<I> {
 }
 
 impl<I: Iterator> Peekable<I> {
-    pub fn inner<'a>(&'a self) -> &'a I {
+    pub fn inner(&self) -> &I {
         &self.iter
     }
 
-    pub fn inner_mut<'a>(&'a mut self) -> &'a mut I {
+    pub fn inner_mut(&mut self) -> &mut I {
         &mut self.iter
     }
 }
 
 impl<I: Iterator> Peekable<I> {
-    pub fn peek<'a>(&'a mut self) -> Option<&'a I::Item> {
+    pub fn peek(&mut self) -> Option<&I::Item> {
         match self.state {
             PeekedState::None => {
                 let i = self.iter.next();
@@ -160,7 +160,7 @@ impl<I: Iterator> Peekable<I> {
 
     /// Peeks the second un-consumed value.
     /// [`peek`] must return Some(_) before calling this method, otherwise it will panic
-    pub fn double_peek<'a>(&'a mut self) -> Option<&'a I::Item> {
+    pub fn double_peek(&mut self) -> Option<&I::Item> {
         let state: PeekedState<I::Item> = match self.state.take_state() {
             PeekedState::None => {
                 let i1 = self

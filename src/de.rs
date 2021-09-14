@@ -129,14 +129,24 @@ impl<'de> Deserializer<'de> {
     */
 
     fn error<T>(&self, kind: ErrorKind) -> Result<T> {
-        return Err(Error::new(&self.tokens.inner(), kind));
+        return Err(Error::new(self.tokens.inner(), kind));
     }
 
-    fn peek<'a>(&'a mut self) -> Result<Token> {
+    fn peek(&mut self) -> Result<Token> {
         match self.tokens.peek() {
             Some(t) => match t {
                 Token::Error => self.error(ErrorKind::FailedToLex),
-                t => Ok(t.clone()),
+                t => Ok(*t),
+            },
+            None => self.error(ErrorKind::MissingToken),
+        }
+    }
+
+    fn double_peek(&mut self) -> Result<Token> {
+        match self.tokens.double_peek() {
+            Some(t) => match t {
+                Token::Error => self.error(ErrorKind::FailedToLex),
+                t => Ok(*t),
             },
             None => self.error(ErrorKind::MissingToken),
         }
@@ -447,7 +457,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         dbg!();
-        let value = match self.tokens.peek().map(|t| *t) {
+        let value = match self.tokens.peek().copied() {
             Some(Token::SquareBracket(Open)) => {
                 expect_token!(
                     self,
@@ -650,9 +660,8 @@ impl<'de, 'a> SeqAccess<'de> for CommaSeparated<'a, 'de> {
     {
         dbg!();
         // Check if there are no more elements.
-        match self.de.peek()? {
-            Token::SquareBracket(Close) => return Ok(None),
-            _ => {}
+        if let Token::SquareBracket(Close) = self.de.peek()? {
+            return Ok(None);
         }
 
         // Comma is required before every element except the first.
@@ -677,9 +686,8 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
     {
         dbg!();
         // Check if there are no more elements.
-        match self.de.peek()? {
-            Token::CurlyBracket(Close) => return Ok(None),
-            _ => {}
+        if let Token::CurlyBracket(Close) = self.de.peek()? {
+            return Ok(None);
         }
 
         // Comma is required before every entry except the first.
@@ -785,17 +793,16 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 //[[...]]
                 //<element data>
 
-                let second = de_self.tokens.double_peek().map(|t| t.clone());
+                let second = de_self.double_peek()?;
                 match second {
-                    Some(Token::BareString) => {}
-                    Some(token) => {
+                    Token::BareString => {}
+                    token => {
                         return Err(Error::unexpected(
                             de_self.as_mut(),
                             token,
                             Expected::Token(Token::BareString),
                         ))
                     }
-                    None => return Err(Error::end(de_self, ErrorKind::MissingToken)),
                 }
                 let name = de_self.tokens.inner().slice();
                 if let Some(current_array_name) = self.within_array_of_tables {
@@ -898,7 +905,7 @@ impl<'de, 'a> SeqAccess<'de> for ArrayOfTables<'a, 'de> {
         T: DeserializeSeed<'de>,
     {
         let de_self = &mut self.de;
-        match de_self.tokens.peek().map(|t| *t) {
+        match de_self.tokens.peek().copied() {
             None => return Ok(None),
             Some(Token::DoubleSquareBracket(Open)) => {}
             Some(token) => {

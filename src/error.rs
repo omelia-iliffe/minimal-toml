@@ -110,7 +110,7 @@ impl core::fmt::Display for ErrorKind {
 }
 
 impl Error {
-    pub fn end<'de>(de: &crate::de::Deserializer<'de>, kind: ErrorKind) -> Error {
+    pub fn end(de: &crate::de::Deserializer<'_>, kind: ErrorKind) -> Error {
         Error {
             span: de.input.len()..de.input.len(),
             kind,
