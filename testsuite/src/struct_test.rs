@@ -58,7 +58,7 @@ fn struct2() {
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     pub struct Flags<'a> {
-        //ff: f64,
+        ff: f64,
         #[serde(borrow)]
         pub wg: WgFlags<'a>,
         #[serde(borrow)]
@@ -66,7 +66,7 @@ fn struct2() {
         pub gc: GCFlags,
     }
     let v = Flags {
-        //ff: 64.0009765625,
+        ff: 64.0009765625,
         wg: WgFlags {
             interface_name: "es0",
             persistent_keep_alive: 21,

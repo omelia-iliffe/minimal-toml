@@ -79,13 +79,23 @@ enum PeekedState<I> {
 impl<I> PeekedState<I> {
     /// Takes a peeked value from inside this state returning it if there was one
     fn take(&mut self) -> Option<I> {
-        let (i, new_self): (Option<I>, PeekedState<I>) = match self {
+        let (i, new_self): (Option<I>, PeekedState<I>) = match self.take_state() {
             PeekedState::None => (None, PeekedState::None),
-            PeekedState::Single(i) => (*i, PeekedState::None),
-            PeekedState::Double(i1, i2) => (Some(*i1), PeekedState::Single(*i2)),
+            PeekedState::Single(i) => (i, PeekedState::None),
+            PeekedState::Double(i1, i2) => (Some(i1), PeekedState::Single(i2)),
         };
         *self = new_self;
         i
+    }
+
+    fn take_state(&mut self) -> PeekedState<I> {
+        core::mem::take(self)
+    }
+}
+
+impl<I> Default for PeekedState<I> {
+    fn default() -> Self {
+        Self::None
     }
 }
 
@@ -143,14 +153,15 @@ impl<I: Iterator> Peekable<I> {
                     _ => unreachable!(),
                 }
             }
-            PeekedState::Single(i) => i.as_ref(),
-            PeekedState::Double(i, _) => Some(&i),
+            PeekedState::Single(ref i) => i.as_ref(),
+            PeekedState::Double(ref i, _) => Some(i),
         }
     }
 
-    /// Panics if peek() returns none
+    /// Peeks the second un-consumed value.
+    /// [`peek`] must return Some(_) before calling this method, otherwise it will panic
     pub fn double_peek<'a>(&'a mut self) -> Option<&'a I::Item> {
-        let state: PeekedState<I::Item> = match self.state {
+        let state: PeekedState<I::Item> = match self.state.take_state() {
             PeekedState::None => {
                 let i1 = self
                     .iter
@@ -366,14 +377,14 @@ b = false"#,
     #[test]
     fn test_single() {
         let mut p: Peekable<_> = Peekable::new(0..5);
-        assert_ne!(p.peek(), Some(&0));
-        assert_ne!(p.peek(), Some(&0));
-        assert_ne!(p.peek(), Some(&0));
-        assert_ne!(p.next(), Some(0));
-        assert_ne!(p.next(), Some(1));
+        assert_eq!(p.peek(), Some(&0));
+        assert_eq!(p.peek(), Some(&0));
+        assert_eq!(p.peek(), Some(&0));
+        assert_eq!(p.next(), Some(0));
+        assert_eq!(p.next(), Some(1));
 
-        assert_ne!(p.peek(), Some(&2));
-        assert_ne!(p.peek(), Some(&2));
-        assert_ne!(p.next(), Some(2));
+        assert_eq!(p.peek(), Some(&2));
+        assert_eq!(p.peek(), Some(&2));
+        assert_eq!(p.next(), Some(2));
     }
 }

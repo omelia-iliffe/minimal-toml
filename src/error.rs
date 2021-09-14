@@ -6,6 +6,7 @@ use core::fmt::{self, Write};
 use crate::lexer::Token;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ErrorKind {
     UnknownToken,
     UnexpectedToken(Token, Expected),
@@ -19,6 +20,7 @@ pub enum ErrorKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Expected {
     Token(Token),
     LineStart,
@@ -26,6 +28,7 @@ pub enum Expected {
     Bool,
     String,
     MapStart,
+    SeqStart,
     EolOrEof,
     Enum,
 }
@@ -44,10 +47,10 @@ impl Error {
         }
     }
 
-    pub fn unexpected(lexer: &logos::Lexer<Token>, token: Token, expected: Expected) -> Self {
+    pub fn unexpected(lexer: &logos::Lexer<Token>, unexpected: Token, expected: Expected) -> Self {
         Self {
             span: lexer.span(),
-            kind: ErrorKind::UnexpectedToken(token, expected),
+            kind: ErrorKind::UnexpectedToken(unexpected, expected),
         }
     }
 }

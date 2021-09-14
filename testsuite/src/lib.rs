@@ -1,7 +1,12 @@
+#![feature(test)]
+
+extern crate test;
+
+mod array_test;
+mod bench;
 mod bool_test;
 mod enum_test;
 mod struct_test;
-mod array_test;
 
 use minimal_toml::Error;
 use serde::{Deserialize, Serialize};

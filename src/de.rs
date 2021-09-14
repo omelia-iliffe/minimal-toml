@@ -1,3 +1,4 @@
+use core::convert::{AsMut, AsRef};
 use core::str::FromStr;
 use serde::de::{
     Deserialize, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess,
@@ -28,11 +29,35 @@ impl<'de> Deserializer<'de> {
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[cfg(feature = "std")]
+#[cfg(all(debug_assertions, feature = "std"))]
 use println as p;
+
+#[cfg(not(debug_assertions))]
+macro_rules! p {
+    () => {};
+    ($($arg:tt)*) => {};
+}
 
 #[cfg(not(feature = "std"))]
 use libc_print::libc_println as p;
+
+#[cfg(not(feature = "std"))]
+use libc_print::libc_print as print;
+
+#[cfg(debug_assertions)]
+macro_rules! p2 {
+    ($self:ident, $($arg:tt)*) => ({
+        for _ in 0..($self.depth.clone()) {
+            print!("  ");
+        }
+        p!($($arg)*);
+    })
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! p2 {
+    ($self:ident, $($arg:tt)*) => {};
+}
 
 macro_rules! dbg {
     () => {
@@ -151,7 +176,7 @@ impl<'de> Deserializer<'de> {
             t => return self.error(ErrorKind::UnexpectedToken(t, Expected::String)),
         };
         //TODO: Check if there are any escape sequences because we can't support them
-        p!("De str: {}", span);
+        p2!(self, "De str: {}", span);
         Ok(span)
     }
 
@@ -159,7 +184,7 @@ impl<'de> Deserializer<'de> {
         //expect_token!(self, Token::BoolLit(_), Expected::Bool);
         match self.next()? {
             Token::BoolLit(value) => {
-                p!("Got bool {}", value);
+                p2!(self, "Got bool {}", value);
                 Ok(value)
             }
             t => self.error(ErrorKind::UnexpectedToken(t, Expected::Bool)),
@@ -189,6 +214,18 @@ macro_rules! deserialize_float_from_str {
     }};
 }
 
+impl<'de, 'a> AsRef<logos::Lexer<'de, Token>> for &'a Deserializer<'de> {
+    fn as_ref(&self) -> &logos::Lexer<'de, Token> {
+        self.tokens.inner()
+    }
+}
+
+impl<'de> AsMut<logos::Lexer<'de, Token>> for &mut Deserializer<'de> {
+    fn as_mut(&mut self) -> &mut logos::Lexer<'de, Token> {
+        self.tokens.inner_mut()
+    }
+}
+
 impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     type Error = Error;
 
@@ -200,7 +237,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
         panic!("Test");
         self.consume_whitespace_and_comments()?;
         let token = self.peek()?;
-        p!("Got any token: {:?}", token);
+        p2!(self, "Got any token: {:?}", token);
         let value = match token {
             /*
             Token::BareString | Token::QuotedString => {
@@ -240,13 +277,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
                 value
             }
             */
-            t => {
-                return Err(Error::unexpected(
-                    self.tokens.inner(),
-                    t,
-                    Expected::MapStart,
-                ))
-            }
+            t => return Err(Error::unexpected(self.as_mut(), t, Expected::MapStart)),
         };
         Ok(value)
     }
@@ -461,21 +492,36 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         dbg!();
-        expect_token!(
-            self,
-            Token::SquareBracket(Open),
-            Expected::Token(Token::SquareBracket(Open))
-        );
-        // Give the visitor access to each element of the sequence.
-        self.depth += 1;
-        let value = visitor.visit_seq(CommaSeparated::new(&mut self))?;
-        self.depth -= 1;
-        // Parse the closing bracket of the sequence.
-        expect_token!(
-            self,
-            Token::SquareBracket(Close),
-            Expected::Token(Token::SquareBracket(Close))
-        );
+        let value = match self.tokens.peek().map(|t| *t) {
+            Some(Token::SquareBracket(Open)) => {
+                expect_token!(
+                    self,
+                    Token::SquareBracket(Open),
+                    Expected::Token(Token::SquareBracket(Open))
+                );
+                // Give the visitor access to each element of the sequence.
+                self.depth += 1;
+                let v = visitor.visit_seq(CommaSeparated::new(&mut self))?;
+                self.depth -= 1;
+                // Parse the closing bracket of the sequence.
+                expect_token!(
+                    self,
+                    Token::SquareBracket(Close),
+                    Expected::Token(Token::SquareBracket(Close))
+                );
+                v
+            }
+            Some(Token::DoubleSquareBracket(Open)) => {
+                self.depth += 1;
+                let v = visitor.visit_seq(ArrayOfTables::new(&mut self))?;
+                self.depth -= 1;
+
+                v
+            }
+            Some(token) => return Err(Error::unexpected(self.as_mut(), token, Expected::SeqStart)),
+            None => return Err(Error::new(self.as_mut(), ErrorKind::MissingToken)),
+        };
+
         Ok(value)
     }
 
@@ -514,7 +560,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        p!("deserialize_map");
+        p2!(self, "deserialize_map");
         self.depth += 1;
         let r = visitor.visit_map(KeyValuePairs::new(&mut self));
         self.depth -= 1;
@@ -536,7 +582,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        p!("De struct {}: {:?}", _name, _fields);
+        p2!(self, "De struct {}: {:?}", _name, _fields);
         self.depth += 1;
         let r = visitor.visit_map(KeyValuePairs::new(&mut self));
         self.depth -= 1;
@@ -544,7 +590,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     }
 
     fn deserialize_enum<V>(
-        self,
+        mut self,
         _enum_name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
@@ -559,7 +605,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
             Token::BareString | Token::QuotedString => {
                 visitor.visit_enum(self.parse_string()?.into_deserializer())
             }
-            t => Err(Error::unexpected(self.tokens.inner(), t, Expected::Enum)),
+            t => Err(Error::unexpected(self.as_mut(), t, Expected::Enum)),
         }
         /*
         if self.peek_char()? == '"' {
@@ -706,7 +752,6 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
 struct KeyValuePairs<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     first: bool,
-    expecting_array_of_tables: Option<&'a str>,
     within_array_of_tables: Option<&'a str>,
 }
 
@@ -715,7 +760,6 @@ impl<'a, 'de> KeyValuePairs<'a, 'de> {
         Self {
             de,
             first: true,
-            expecting_array_of_tables: None,
             within_array_of_tables: None,
         }
     }
@@ -734,19 +778,19 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
         let de_self = &mut self.de;
         if de_self.consume_whitespace_and_comments().is_err() {
             //consume_whitespace_and_comments returns error on end of stream
-            p!("Got end of stream while reading next entry");
+            p2!(de_self, "Got end of stream while reading next entry");
             return Ok(None);
         }
         let token = de_self.peek().unwrap();
-        p!("Key: {:?} - depth: {}", token, de_self.depth);
+        p2!(de_self, "Key: {:?} - depth: {}", token, de_self.depth);
         let result = match token {
             //Simple key value pair - parse name
             Token::BareString => seed.deserialize(&mut *self.de).map(Some),
             Token::SquareBracket(Open) => {
-                p!("Got square bracket open. First: {}", self.first);
+                p2!(de_self, "Got square bracket open. First: {}", self.first);
                 if !self.first && de_self.depth > 1 {
                     //Start of new table that is not part of our entries
-                    p!("Got new table - breaking");
+                    p2!(de_self, "Got new table - breaking");
                     return Ok(None);
                 }
                 //Table in format:
@@ -777,38 +821,39 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 result
             }
             Token::DoubleSquareBracket(Open) => {
-                p!("Got square bracket open. First: {}", self.first);
+                p2!(de_self, "Got double square bracket open");
+                if de_self.depth > 1 {
+                    p2!(de_self, "Not root level array of tables. Breaking");
+                    return Ok(None);
+                }
                 //Table in format:
                 //[[...]]
                 //<element data>
 
-                //Consume [[
-                de_self.next().unwrap();
-                expect_token!(
-                    de_self,
-                    Token::BareString,
-                    Expected::Token(Token::BareString)
-                );
+                let second = de_self.tokens.double_peek().map(|t| t.clone());
+                match second {
+                    Some(Token::BareString) => {}
+                    Some(token) => {
+                        return Err(Error::unexpected(
+                            de_self.as_mut(),
+                            token,
+                            Expected::Token(Token::BareString),
+                        ))
+                    }
+                    None => return Err(Error::end(de_self, ErrorKind::MissingToken)),
+                }
                 let name = de_self.tokens.inner().slice();
                 if let Some(current_array_name) = self.within_array_of_tables {
                     if current_array_name == name {
-                        p!("Got different table of arrays");
+                        p2!(de_self, "Got different table of arrays");
                         unimplemented!();
                     }
                 }
-                p!("Got name of array of tables: {}", name);
-                self.expecting_array_of_tables = Some(name);
+                p2!(de_self, "Got name of array of tables: {}", name);
                 //Read string within [[...]]
                 let result = seed
                     .deserialize(SingleStrDeserializer { s: name })
                     .map(Some);
-
-                expect_token!(
-                    de_self,
-                    Token::DoubleSquareBracket(Close),
-                    Expected::Token(Token::DoubleSquareBracket(Close))
-                );
-                de_self.consume_whitespace_and_comments()?;
 
                 result
             }
@@ -823,9 +868,9 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
         V: DeserializeSeed<'de>,
     {
         dbg!();
-        let de_self = &mut *self.de;
+        let mut de_self = &mut *self.de;
         let initial_token = de_self.peek()?;
-        p!("Initial token: {:?}", initial_token);
+        p2!(de_self, "Initial token: {:?}", initial_token);
 
         let allow_consume_whitespace = match initial_token {
             Token::Equals => {
@@ -833,14 +878,9 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 let _ = de_self.next().unwrap();
                 false
             }
+            Token::DoubleSquareBracket(Open) => false,
             Token::BareString => true,
-            t => {
-                return Err(Error::unexpected(
-                    de_self.tokens.inner(),
-                    t,
-                    Expected::Value,
-                ))
-            }
+            t => return Err(Error::unexpected(de_self.as_mut(), t, Expected::Value)),
         };
         let result = seed.deserialize(&mut *self.de);
         if self.de.depth <= 1 && allow_consume_whitespace {
@@ -879,20 +919,23 @@ impl<'de, 'a> SerdeDeserializer<'de> for SingleStrDeserializer<'a> {
     }
 }
 
-struct TableOfArrays<'a, 'de: 'a> {
+struct ArrayOfTables<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
-    table_name: &'a str,
+    table_name: Option<&'a str>,
 }
 
-impl<'a, 'de> TableOfArrays<'a, 'de> {
-    fn new(de: &'a mut Deserializer<'de>, table_name: &'de str) -> Self {
-        Self { de, table_name }
+impl<'a, 'de> ArrayOfTables<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        Self {
+            de,
+            table_name: None,
+        }
     }
 }
 
 // `SeqAccess` is provided to the `Visitor` to give it the ability to iterate
 // through elements of the sequence.
-impl<'de, 'a> SeqAccess<'de> for TableOfArrays<'a, 'de> {
+impl<'de, 'a> SeqAccess<'de> for ArrayOfTables<'a, 'de> {
     type Error = Error;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>>
@@ -900,13 +943,13 @@ impl<'de, 'a> SeqAccess<'de> for TableOfArrays<'a, 'de> {
         T: DeserializeSeed<'de>,
     {
         let de_self = &mut self.de;
-        match de_self.tokens.peek() {
+        match de_self.tokens.peek().map(|t| *t) {
             None => return Ok(None),
             Some(Token::DoubleSquareBracket(Open)) => {}
-            _ => {
+            Some(token) => {
                 return Err(Error::unexpected(
-                    self.de.tokens.inner(),
-                    Token::DoubleSquareBracket(Open),
+                    de_self.as_mut(),
+                    token,
                     Expected::Token(Token::DoubleSquareBracket(Open)),
                 ))
             }
@@ -915,26 +958,37 @@ impl<'de, 'a> SeqAccess<'de> for TableOfArrays<'a, 'de> {
             Some(Token::BareString) => {}
             _ => {
                 return Err(Error::unexpected(
-                    self.de.tokens.inner(),
+                    de_self.as_mut(),
                     Token::BareString,
                     Expected::Token(Token::BareString),
                 ))
             }
         }
         let name = de_self.tokens.inner().slice();
-        p!("Got inner table name {}", name);
-        if self.table_name == name {
-            p!("Got different table of arrays");
-            unimplemented!();
+        p2!(de_self, "Got inner table name {}", name);
+        match self.table_name {
+            Some(table_name) => {
+                if table_name != name {
+                    //We used peek above so that we can stop reading this sequence and leave the
+                    //start of the new table un-consumed.
+                    //This keeps the code generic for the start of any table
+                    p2!(de_self, "Got different table of arrays");
+                    unimplemented!();
+                }
+            }
+            None => self.table_name = Some(name),
         }
-        p!("Got name of array of tables: {}", name);
+
+        //Consume [[ and <name>
+        let _ = de_self.next();
+        let _ = de_self.next();
 
         expect_token!(
             de_self,
             Token::DoubleSquareBracket(Close),
             Expected::Token(Token::DoubleSquareBracket(Close))
         );
-        
+
         // Deserialize an array element (probably a struct)
         seed.deserialize(&mut *self.de).map(Some)
     }
