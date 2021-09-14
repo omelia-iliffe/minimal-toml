@@ -16,7 +16,7 @@ jobs:
     - run: cargo test 
 
   test_nightly:
-    name: Test Nightly
+    name: Bench & Testsuite
     runs-on: ubuntu-latest
     steps: 
     - uses: actions/checkout@master
