@@ -15,6 +15,7 @@ pub struct Deserializer<'de> {
     pub(crate) input: &'de str,
     tokens: Peekable<Lexer<'de>>,
     depth: usize,
+    in_array_table: Option<&'de str>,
 }
 
 impl<'de> Deserializer<'de> {
@@ -23,6 +24,7 @@ impl<'de> Deserializer<'de> {
             input,
             tokens: Peekable::new(lexer::lex(input)),
             depth: 0,
+            in_array_table: None,
         }
     }
 }
@@ -186,7 +188,6 @@ impl<'de> Deserializer<'de> {
             t => return self.error(ErrorKind::UnexpectedToken(t, Expected::String)),
         };
         //TODO: Check if there are any escape sequences because we can't support them
-        p2!(self, "De str: {}", span);
         Ok(span)
     }
 
@@ -247,51 +248,19 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
         unimplemented!()
     }
 
-    /*
-        let token = self.peek()?;
-        p!("Any got token {:?}", token);
-        match token {
-            Token::EOL | Token::Comment => {
-                self.next().unwrap();
-                self.deserialize_any(visitor)
-            }
-            Token::SquareBracket(Open) => self.deserialize_map(visitor),
-            Token::BareString => self.deserialize_assignment(visitor),
-            Token::QuotedString => self.deserialize_assignment(visitor),
-            Token::Error => self.error(ErrorKind::UnknownToken),
-            _ => self.error(ErrorKind::UnexpectedToken(Expected::LineStart)),
-        }
-    }*/
-
-    // Uses the `parse_bool` parsing function defined above to read the JSON
-    // identifier `true` or `false` from the input.
-    //
-    // Parsing refers to looking at the input and deciding that it contains the
-    // JSON value `true` or `false`.
-    //
-    // Deserialization refers to mapping that JSON value into Serde's data
-    // model by invoking one of the `Visitor` methods. In the case of JSON and
-    // bool that mapping is straightforward so the distinction may seem silly,
-    // but in other cases Deserializers sometimes perform non-obvious mappings.
-    // For example the TOML format has a Datetime type and Serde's data model
-    // does not. In the `toml` crate, a Datetime in the input is deserialized by
-    // mapping it to a Serde data model "struct" type with a special name and a
-    // single field containing the Datetime represented as a string.
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_bool");
         visitor.visit_bool(self.parse_bool()?)
     }
 
-    // The `parse_signed` function is generic over the integer type `T` so here
-    // it is invoked with `T=i8`. The next 8 methods are similar.
     fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_i8");
         deserialize_int_from_str!(self, visitor, i8, visit_i8)
     }
 
@@ -299,7 +268,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_i16");
         deserialize_int_from_str!(self, visitor, i16, visit_i16)
     }
 
@@ -307,7 +276,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_i32");
         deserialize_int_from_str!(self, visitor, i32, visit_i32)
     }
 
@@ -315,7 +284,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_i64");
         deserialize_int_from_str!(self, visitor, i64, visit_i64)
     }
 
@@ -323,6 +292,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        p2!(self, "~deserialize_u8");
         deserialize_int_from_str!(self, visitor, u8, visit_u8)
     }
 
@@ -330,7 +300,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_u16");
         deserialize_int_from_str!(self, visitor, u16, visit_u16)
     }
 
@@ -338,7 +308,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_u32");
         deserialize_int_from_str!(self, visitor, u32, visit_u32)
     }
 
@@ -346,7 +316,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_u64");
         deserialize_int_from_str!(self, visitor, u64, visit_u64)
     }
 
@@ -354,37 +324,32 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_f32");
         deserialize_float_from_str!(self, visitor, f32, visit_f32)
     }
 
-    // Float parsing is stupidly hard.
     fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_f64");
         deserialize_float_from_str!(self, visitor, f64, visit_f64)
     }
 
-    // The `Serializer` implementation on the previous page serialized chars as
-    // single-character strings so handle that representation here.
     fn deserialize_char<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_char");
         // Parse a string, check that it is one character, call `visit_char`.
         unimplemented!()
     }
 
-    // Refer to the "Understanding deserializer lifetimes" page for information
-    // about the three deserialization flavors of strings in Serde.
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_str");
         visitor.visit_borrowed_str(self.parse_string()?)
     }
 
@@ -392,7 +357,6 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
         self.deserialize_str(visitor)
     }
 
@@ -400,7 +364,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_bytes");
         unimplemented!()
     }
 
@@ -408,7 +372,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_byte_buf");
         unimplemented!()
     }
 
@@ -416,25 +380,23 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_option");
         visitor.visit_some(self)
     }
 
-    // In Serde, unit means an anonymous value containing no data.
     fn deserialize_unit<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_unit");
         unimplemented!()
     }
 
-    // Unit struct means a named value containing no data.
     fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_unit_struct");
         self.deserialize_unit(visitor)
     }
 
@@ -445,18 +407,15 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_newtype_struct");
         visitor.visit_newtype_struct(self)
     }
 
-    // Deserialization of compound types like sequences and maps happens by
-    // passing the visitor an "Access" object that gives it the ability to
-    // iterate through the data contained in the sequence.
     fn deserialize_seq<V>(mut self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_seq");
         let value = match self.tokens.peek().copied() {
             Some(Token::SquareBracket(Open)) => {
                 expect_token!(
@@ -500,7 +459,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_tuple");
         self.deserialize_seq(visitor)
     }
 
@@ -514,7 +473,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_tuple_struct");
         self.deserialize_seq(visitor)
     }
 
@@ -525,7 +484,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        p2!(self, "deserialize_map");
+        p2!(self, "~deserialize_map");
         self.depth += 1;
         let r = visitor.visit_map(KeyValuePairs::new(&mut self));
         self.depth -= 1;
@@ -540,16 +499,19 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     // the fields cannot be known ahead of time is probably a map.
     fn deserialize_struct<V>(
         mut self,
-        _name: &'static str,
-        _fields: &'static [&'static str],
+        name: &'static str,
+        fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        p2!(self, "De struct {}: {:?}", _name, _fields);
+        p2!(self, "~deserialize_struct {} {:?}", name, fields);
         self.depth += 1;
-        let r = visitor.visit_map(KeyValuePairs::new(&mut self));
+        let r = visitor.visit_map(KeyValuePairs::new_expecting_struct(
+            &mut self,
+            StructInfo { name, fields },
+        ));
         self.depth -= 1;
         r
     }
@@ -563,6 +525,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
+        p2!(self, "~deserialize_enum {} {:?}", _enum_name, _variants);
         //An enum is in the format <Enum name> = "Normal_Variant"
         //Or <Enum Name> = {
         let initial_token = self.peek()?;
@@ -572,52 +535,21 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
             }
             t => Err(Error::unexpected(self.as_mut(), t, Expected::Enum)),
         }
-        /*
-        if self.peek_char()? == '"' {
-            // Visit a unit variant.
-            visitor.visit_enum(self.parse_string()?.into_deserializer())
-        } else if self.next_char()? == '{' {
-            // Visit a newtype variant, tuple variant, or struct variant.
-            let value = visitor.visit_enum(Enum::new(self))?;
-            // Parse the matching close brace.
-            if self.next_char()? == '}' {
-                Ok(value)
-            } else {
-                Err(Error::ExpectedMapEnd)
-            }
-        } else {
-            Err(Error::ExpectedEnum)
-        }
-        */
     }
 
-    // An identifier in Serde is the type that identifies a field of a struct or
-    // the variant of an enum. In JSON, struct fields and enum variants are
-    // represented as strings. In other formats they may be represented as
-    // numeric indices.
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        dbg!();
+        p2!(self, "~deserialize_identifier");
         self.deserialize_str(visitor)
     }
 
-    // Like `deserialize_any` but indicates to the `Deserializer` that it makes
-    // no difference which `Visitor` method is called because the data is
-    // ignored.
-    //
-    // Some deserializers are able to implement this more efficiently than
-    // `deserialize_any`, for example by rapidly skipping over matched
-    // delimiters without paying close attention to the data in between.
-    //
-    // Some formats are not able to implement this at all. Formats that can
-    // implement `deserialize_any` and `deserialize_ignored_any` are known as
-    // self-describing.
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
+        p2!(self, "~deserialize_ignored_any");
         self.consume_whitespace_and_comments()?;
         let token = self.next()?;
 
@@ -635,9 +567,6 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     }
 }
 
-// In order to handle commas correctly when deserializing a JSON array or map,
-// we need to track whether we are on the first element or past the first
-// element.
 struct CommaSeparated<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     first: bool,
@@ -708,14 +637,22 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
         let de_self = &mut self.de;
         expect_token!(de_self, Token::Equals, Expected::Token(Token::Equals));
         // Deserialize a map value.
-        seed.deserialize(&mut *self.de)
+        self.de.depth += 1;
+        let r = seed.deserialize(&mut *self.de);
+        self.de.depth -= 1;
+        r
     }
+}
+
+struct StructInfo {
+    name: &'static str,
+    fields: &'static [&'static str],
 }
 
 struct KeyValuePairs<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     first: bool,
-    within_array_of_tables: Option<&'a str>,
+    struct_info: Option<StructInfo>,
 }
 
 impl<'a, 'de> KeyValuePairs<'a, 'de> {
@@ -723,7 +660,15 @@ impl<'a, 'de> KeyValuePairs<'a, 'de> {
         Self {
             de,
             first: true,
-            within_array_of_tables: None,
+            struct_info: None,
+        }
+    }
+
+    fn new_expecting_struct(de: &'a mut Deserializer<'de>, info: StructInfo) -> Self {
+        Self {
+            de,
+            first: true,
+            struct_info: Some(info),
         }
     }
 }
@@ -737,8 +682,8 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
     {
         //Here we are getting the name of a particular key. This can either be a "key_name = 'value'" pair line
         //Or a table, where the value is a sub-struct with more key-value pairs
-        dbg!();
         let de_self = &mut self.de;
+        p2!(de_self, "~next_key_seed (KeyValuePairs)");
         if de_self.consume_whitespace_and_comments().is_err() {
             //consume_whitespace_and_comments returns error on end of stream
             p2!(de_self, "Got end of stream while reading next entry");
@@ -785,10 +730,6 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
             }
             Token::DoubleSquareBracket(Open) => {
                 p2!(de_self, "Got double square bracket open");
-                if de_self.depth > 1 {
-                    p2!(de_self, "Not root level array of tables. Breaking");
-                    return Ok(None);
-                }
                 //Table in format:
                 //[[...]]
                 //<element data>
@@ -805,13 +746,30 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                     }
                 }
                 let name = de_self.tokens.inner().slice();
-                if let Some(current_array_name) = self.within_array_of_tables {
-                    if current_array_name == name {
-                        p2!(de_self, "Got different table of arrays");
-                        unimplemented!();
+                if let Some(outer_name) = de_self.in_array_table {
+                    if de_self.peek()? == Token::Period {
+                        if name != outer_name {
+                            panic!(
+                                "current table path start {} doesn't equal expected table name {}",
+                                name, outer_name
+                            );
+                        }
+                    } else if name == outer_name {
+                        p2!(de_self, "Found next table in array");
+                        return Ok(None);
+                    } else {
+                        //We found a table with a different name than ours. Because
+                        //`de_self.in_array_table` is `Some`, we are too deep to parse this because
+                        //the next table that were seeing is at the root level
+                        p2!(de_self, "Not root level array of tables. Breaking");
+                        return Ok(None);
                     }
+                } else {
+                    de_self.in_array_table = Some(name);
                 }
-                p2!(de_self, "Got name of array of tables: {}", name);
+                //Subtable element with path
+
+                p2!(de_self, "In array of tables: {}", name);
                 //Read string within [[...]]
                 let result = seed
                     .deserialize(SingleStrDeserializer { s: name })
@@ -829,10 +787,9 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
     where
         V: DeserializeSeed<'de>,
     {
-        dbg!();
         let mut de_self = &mut *self.de;
         let initial_token = de_self.peek()?;
-        p2!(de_self, "Initial token: {:?}", initial_token);
+        p2!(de_self, "~next_value_seed (KeyValuePairs)");
 
         let allow_consume_whitespace = match initial_token {
             Token::Equals => {
@@ -844,7 +801,11 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
             Token::BareString => true,
             t => return Err(Error::unexpected(de_self.as_mut(), t, Expected::Value)),
         };
+
+        self.de.depth += 1;
         let result = seed.deserialize(&mut *self.de);
+        self.de.depth -= 1;
+
         if self.de.depth <= 1 && allow_consume_whitespace {
             p!("Consuming whitespace after other value");
             //Failure indicates end of stream so dont fail here because we will retry in next_key_seed,
@@ -905,6 +866,7 @@ impl<'de, 'a> SeqAccess<'de> for ArrayOfTables<'a, 'de> {
         T: DeserializeSeed<'de>,
     {
         let de_self = &mut self.de;
+        p2!(de_self, "~next_value_seed (ArrayOfTables)");
         match de_self.tokens.peek().copied() {
             None => return Ok(None),
             Some(Token::DoubleSquareBracket(Open)) => {}
@@ -952,66 +914,12 @@ impl<'de, 'a> SeqAccess<'de> for ArrayOfTables<'a, 'de> {
         );
 
         // Deserialize an array element (probably a struct)
-        seed.deserialize(&mut *self.de).map(Some)
+        self.de.depth += 1;
+        let r = seed.deserialize(&mut *self.de).map(Some);
+        self.de.depth -= 1;
+        r
     }
 }
-
-/*
-struct SubStructSeparated<'a, 'de: 'a> {
-    de: &'a mut Deserializer<'de>,
-}
-
-impl<'a, 'de> SubStructSeparated<'a, 'de> {
-    fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Self { de }
-    }
-}
-
-impl<'de, 'a> MapAccess<'de> for SubStructSeparated<'a, 'de> {
-    type Error = Error;
-
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
-    where
-        K: DeserializeSeed<'de>,
-    {
-        dbg!();
-        let de_self = &mut self.de;
-        let token = match de_self.peek() {
-            Ok(t) => t,
-            Err(_eol) => {
-                p!("Got end of stream");
-                return Ok(None);
-            }
-        };
-        p!("Key: {:?}", token);
-        let result = match token {
-            Token::BareString => seed.deserialize(&mut *self.de).map(Some),
-            _ => unimplemented!(),
-        };
-        // Deserialize a map key.
-        p!("Got key result");
-        result
-    }
-
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value>
-    where
-        V: DeserializeSeed<'de>,
-    {
-        dbg!();
-        {
-            let de_self = &mut *self.de;
-            expect_token!(de_self, Token::Equals, Expected::Token(Token::Equals));
-        }
-        // Deserialize a map value.
-        let result = seed.deserialize(&mut *self.de);
-
-        //Consume end of line
-        let de_self = &mut *self.de;
-        expect_eol_or_eof!(de_self);
-        result
-    }
-}
-*/
 
 struct Enum<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
