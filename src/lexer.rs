@@ -1,5 +1,8 @@
 use logos::Logos;
 
+use crate::{Error, ErrorKind, Expected};
+use core::ops::Range;
+
 pub type Lexer<'a> = logos::Lexer<'a, Token>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -99,92 +102,108 @@ impl<I> Default for PeekedState<I> {
     }
 }
 
-/// Taken from core::iter::Peekable but with the ability to get the inner iterator
-#[derive(Clone, Debug)]
-#[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct Peekable<I: Iterator> {
-    iter: I,
-    /// Remember a peeked value, even if it was None.
-    state: PeekedState<I::Item>,
+pub struct LexerIterator<'a> {
+    lexer: Lexer<'a>,
 }
 
-impl<I: Iterator> Peekable<I> {
-    pub fn new(iter: I) -> Peekable<I> {
-        Peekable {
-            iter,
-            state: PeekedState::None,
+impl<'a> LexerIterator<'a> {
+    pub fn new(lexer: Lexer<'a>) -> Self {
+        Self { lexer }
+    }
+
+    pub fn inner(&self) -> &Lexer<'a> {
+        &self.lexer
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenItem {
+    pub token: Token,
+    pub range: Range<usize>,
+}
+
+impl<'a> TokenItem {
+    pub fn new(t: Token, r: Range<usize>) -> Self {
+        Self { token: t, range: r }
+    }
+
+    pub fn expect(self, expected: Token) -> crate::error::Result<()> {
+        if self.token == expected {
+            Ok(())
+        } else {
+            let expected = match expected {
+                Token::Comment => Expected::Token(Token::Comment),
+                Token::BareString => Expected::Token(Token::BareString),
+                Token::Comma => Expected::Token(Token::Comma),
+                Token::Equals => Expected::Token(Token::Equals),
+                Token::Error => Expected::Token(Token::Error),
+                Token::LiteralString => Expected::Token(Token::LiteralString),
+                Token::DoubleSquareBracket(t) => Expected::Token(Token::DoubleSquareBracket(t)),
+                Token::SquareBracket(t) => Expected::Token(Token::SquareBracket(t)),
+                Token::CurlyBracket(t) => Expected::Token(Token::CurlyBracket(t)),
+                Token::LiteralMutlilineString => Expected::Token(Token::LiteralMutlilineString),
+                Token::MutlilineString => Expected::Token(Token::MutlilineString),
+                Token::Eol => Expected::Token(Token::Eol),
+                Token::NumberLit => Expected::Token(Token::NumberLit),
+                Token::BoolLit(_) => Expected::Bool,
+                Token::Period => Expected::Token(Token::Period),
+                Token::QuotedString => Expected::Token(Token::QuotedString),
+            };
+
+            Err(Error::new(
+                self.range,
+                ErrorKind::UnexpectedToken(self.token, expected),
+            ))
         }
     }
 }
 
-// Peekable must remember if a None has been seen in the `.peek()` method.
-// It ensures that `.peek(); .peek();` or `.peek(); .next();` only advances the
-// underlying iterator at most once. This does not by itself make the iterator
-// fused.
-impl<I: Iterator> Iterator for Peekable<I> {
-    type Item = I::Item;
-
-    fn next(&mut self) -> Option<I::Item> {
-        match self.state.take() {
-            Some(v) => Some(v),
-            None => self.iter.next(),
-        }
-    }
+macro_rules! my_match {
+   ($obj:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
+       match $obj {
+           $($matcher $(if $pred)* => $result),*
+       }
+   }
 }
 
-impl<I: Iterator> Peekable<I> {
-    pub fn inner(&self) -> &I {
-        &self.iter
-    }
-
-    pub fn inner_mut(&mut self) -> &mut I {
-        &mut self.iter
-    }
+fn a() {
+    let x = 7;
+    let s = my_match! {
+        x,
+        10 => "Ten",
+        n if x < 5 => "Less than 5",
+        _ => "something else"
+    };
+    println!("s = {:?}", s); // "Something else"
 }
 
-impl<I: Iterator> Peekable<I> {
-    pub fn peek(&mut self) -> Option<&I::Item> {
-        match self.state {
-            PeekedState::None => {
-                let i = self.iter.next();
-                self.state = PeekedState::Single(i);
-                match &self.state {
-                    PeekedState::Single(ref i) => i.as_ref(),
-                    _ => unreachable!(),
-                }
+#[macro_export]
+macro_rules! expect_next {
+    ($self:ident, $expected:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
+        {
+            let item = $self.next()?;
+            match item.token {
+                 $($matcher $(if $pred)* => $result),*
+                ,
+                _ =>
+                    return $crate::error::Result::Err(
+                        $crate::error::Error::new(
+                            item.range,
+                            $crate::error::ErrorKind::UnexpectedToken(item.token, $expected)
+                        )
+                    ),
             }
-            PeekedState::Single(ref i) => i.as_ref(),
-            PeekedState::Double(ref i, _) => Some(i),
         }
-    }
+    };
+}
 
-    /// Peeks the second un-consumed value.
-    /// [`peek`] must return Some(_) before calling this method, otherwise it will panic
-    pub fn double_peek(&mut self) -> Option<&I::Item> {
-        let state: PeekedState<I::Item> = match self.state.take_state() {
-            PeekedState::None => {
-                let i1 = self
-                    .iter
-                    .next()
-                    .expect("Caller must ensure that peek returns Some first!");
-                let i2 = self.iter.next();
-                PeekedState::Double(i1, i2)
-            }
-            PeekedState::Single(i1) => {
-                let i1 = i1.expect("Caller must ensure that peek returns Some first!");
+impl<'a> Iterator for LexerIterator<'a> {
+    type Item = TokenItem;
 
-                let i2 = self.iter.next();
-
-                PeekedState::Double(i1, i2)
-            }
-            PeekedState::Double(i1, i2) => PeekedState::Double(i1, i2),
-        };
-
-        self.state = state;
-        match &self.state {
-            PeekedState::Double(_, i2) => i2.as_ref(),
-            _ => unreachable!(),
-        }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.lexer
+            .next()
+            .map(|t| TokenItem::new(t, self.lexer.span()))
     }
 }
 
@@ -373,18 +392,5 @@ b = false"#,
                 (Token::BoolLit(false), "false"),
             ],
         );
-    }
-    #[test]
-    fn test_single() {
-        let mut p: Peekable<_> = Peekable::new(0..5);
-        assert_eq!(p.peek(), Some(&0));
-        assert_eq!(p.peek(), Some(&0));
-        assert_eq!(p.peek(), Some(&0));
-        assert_eq!(p.next(), Some(0));
-        assert_eq!(p.next(), Some(1));
-
-        assert_eq!(p.peek(), Some(&2));
-        assert_eq!(p.peek(), Some(&2));
-        assert_eq!(p.next(), Some(2));
     }
 }

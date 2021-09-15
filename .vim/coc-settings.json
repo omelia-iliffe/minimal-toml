@@ -4,6 +4,7 @@
     "Peekable",
     "heapless",
     "newtype",
+    "peekmore",
     "substruct"
   ]
 }

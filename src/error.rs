@@ -39,17 +39,20 @@ pub struct Error {
     pub kind: ErrorKind,
 }
 
+pub type Result<T> = core::result::Result<T, Error>;
+
 impl Error {
-    pub fn new(lexer: &logos::Lexer<Token>, kind: ErrorKind) -> Self {
-        Self {
-            span: lexer.span(),
-            kind,
-        }
+    pub fn new(span: core::ops::Range<usize>, kind: ErrorKind) -> Self {
+        Self { span, kind }
     }
 
-    pub fn unexpected(lexer: &logos::Lexer<Token>, unexpected: Token, expected: Expected) -> Self {
+    pub fn unexpected(
+        lexer: &crate::de::Deserializer<'_>,
+        unexpected: Token,
+        expected: Expected,
+    ) -> Self {
         Self {
-            span: lexer.span(),
+            span: lexer.tokens.inner().inner().span(),
             kind: ErrorKind::UnexpectedToken(unexpected, expected),
         }
     }
