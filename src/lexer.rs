@@ -54,7 +54,7 @@ pub enum Token {
     #[regex("[\n|\r\n]")]
     Eol,
 
-    #[regex("[\\-0-9\\.]+", priority = 5)]
+    #[regex("[+-]?([0-9]*[.])?[0-9]+", priority = 2)]
     NumberLit,
 
     #[token("true", |_| true)]
@@ -127,54 +127,24 @@ impl<'a> TokenItem {
         Self { token: t, range: r }
     }
 
-    pub fn expect(self, expected: Token) -> crate::error::Result<()> {
-        if self.token == expected {
-            Ok(())
-        } else {
-            let expected = match expected {
-                Token::Comment => Expected::Token(Token::Comment),
-                Token::BareString => Expected::Token(Token::BareString),
-                Token::Comma => Expected::Token(Token::Comma),
-                Token::Equals => Expected::Token(Token::Equals),
-                Token::Error => Expected::Token(Token::Error),
-                Token::LiteralString => Expected::Token(Token::LiteralString),
-                Token::DoubleSquareBracket(t) => Expected::Token(Token::DoubleSquareBracket(t)),
-                Token::SquareBracket(t) => Expected::Token(Token::SquareBracket(t)),
-                Token::CurlyBracket(t) => Expected::Token(Token::CurlyBracket(t)),
-                Token::LiteralMutlilineString => Expected::Token(Token::LiteralMutlilineString),
-                Token::MutlilineString => Expected::Token(Token::MutlilineString),
-                Token::Eol => Expected::Token(Token::Eol),
-                Token::NumberLit => Expected::Token(Token::NumberLit),
-                Token::BoolLit(_) => Expected::Bool,
-                Token::Period => Expected::Token(Token::Period),
-                Token::QuotedString => Expected::Token(Token::QuotedString),
-            };
-
-            Err(Error::new(
-                self.range,
-                ErrorKind::UnexpectedToken(self.token, expected),
-            ))
+    pub fn expect(&self, expected: Token) -> crate::error::Result<()> {
+        match self.token {
+            token if token == expected => Ok(()),
+            Token::Error => Err(Error::new(self.range.clone(), ErrorKind::FailedToLex)),
+            _ => Err(Error::new(
+                self.range.clone(),
+                ErrorKind::UnexpectedToken(self.token, Expected::Token(expected)),
+            )),
         }
     }
 }
 
-macro_rules! my_match {
-   ($obj:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
-       match $obj {
-           $($matcher $(if $pred)* => $result),*
-       }
-   }
-}
-
-fn a() {
-    let x = 7;
-    let s = my_match! {
-        x,
-        10 => "Ten",
-        n if x < 5 => "Less than 5",
-        _ => "something else"
+/// Returns a slice containing the text of the given token item using the provided deserializer
+#[macro_export]
+macro_rules! range_to_str {
+    ($self:ident, $tok_item:expr) => {
+        &$self.input[$tok_item.range.start..$tok_item.range.end]
     };
-    println!("s = {:?}", s); // "Something else"
 }
 
 #[macro_export]
@@ -197,6 +167,47 @@ macro_rules! expect_next {
     };
 }
 
+#[macro_export]
+macro_rules! expect_next_peeked {
+    ($self:ident, $expected:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
+        {
+            let item = $self.peek()?;
+            match item.token {
+                 $($matcher $(if $pred)* => $result),*
+                ,
+                _ =>
+                    return $crate::error::Result::Err(
+                        $crate::error::Error::new(
+                            item.range,
+                            $crate::error::ErrorKind::UnexpectedToken(item.token, $expected)
+                        )
+                    ),
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! expect_next_with_item {
+    ($self:ident, $expected:expr, $($matcher:pat $(if $pred:expr)* => $result:expr),*) => {
+        {
+            let item = $self.next()?;
+            let second = match item.token {
+                 $($matcher $(if $pred)* => $result),*
+                ,
+                _ =>
+                    return $crate::error::Result::Err(
+                        $crate::error::Error::new(
+                            item.range,
+                            $crate::error::ErrorKind::UnexpectedToken(item.token, $expected)
+                        )
+                    ),
+            };
+            (item, second)
+        }
+    };
+}
+
 impl<'a> Iterator for LexerIterator<'a> {
     type Item = TokenItem;
 
@@ -211,6 +222,8 @@ impl<'a> Iterator for LexerIterator<'a> {
 mod tests {
 
     use super::*;
+
+    use BracketType::*;
 
     fn test_lex(toml: &'static str, expected_tokens: Vec<(Token, &'static str)>) {
         let mut lex = Token::lexer(toml);
@@ -330,7 +343,7 @@ contributors = [
                 (Token::Eol, "\n"),
                 (Token::BareString, "numbers"),
                 (Token::Equals, "="),
-                (Token::SquareBracket(BracketType::Open), "["),
+                (Token::SquareBracket(Open), "["),
                 (Token::NumberLit, "0.1"),
                 (Token::Comma, ","),
                 (Token::NumberLit, "0.2"),
@@ -342,16 +355,16 @@ contributors = [
                 (Token::NumberLit, "2"),
                 (Token::Comma, ","),
                 (Token::NumberLit, "5"),
-                (Token::SquareBracket(BracketType::Close), "]"),
+                (Token::SquareBracket(Close), "]"),
                 (Token::Eol, "\n"),
                 (Token::BareString, "contributors"),
                 (Token::Equals, "="),
-                (Token::SquareBracket(BracketType::Open), "["),
+                (Token::SquareBracket(Open), "["),
                 (Token::Eol, "\n"),
                 (Token::QuotedString, "\"Foo Bar <foo@example.com>\""),
                 (Token::Comma, ","),
                 (Token::Eol, "\n"),
-                (Token::CurlyBracket(BracketType::Open), "{"),
+                (Token::CurlyBracket(Open), "{"),
                 (Token::BareString, "name"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"Baz Qux\""),
@@ -363,9 +376,9 @@ contributors = [
                 (Token::BareString, "url"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"https://example.com/bazqux\""),
-                (Token::CurlyBracket(BracketType::Close), "}"),
+                (Token::CurlyBracket(Close), "}"),
                 (Token::Eol, "\n"),
-                (Token::SquareBracket(BracketType::Close), "]"),
+                (Token::SquareBracket(Close), "]"),
                 (Token::Eol, "\n"),
             ],
         );
@@ -380,8 +393,8 @@ a = 3564
 b = false"#,
             vec![
                 (Token::Eol, "\n"),
-                (Token::DoubleSquareBracket(BracketType::Open), "[["),
-                (Token::DoubleSquareBracket(BracketType::Close), "]]"),
+                (Token::DoubleSquareBracket(Open), "[["),
+                (Token::DoubleSquareBracket(Close), "]]"),
                 (Token::Eol, "\n"),
                 (Token::BareString, "a"),
                 (Token::Equals, "="),
@@ -390,6 +403,46 @@ b = false"#,
                 (Token::BareString, "b"),
                 (Token::Equals, "="),
                 (Token::BoolLit(false), "false"),
+            ],
+        );
+    }
+
+
+    #[test]
+    fn lex7() {
+        test_lex(
+            r#"
+            [[array]]
+            [[array.sub]]
+    server = "test"
+    "my fav number" = 7.564
+    "127.0.0.1" = 15.56
+            "#,
+            vec![
+                (Token::Eol, "\n"),
+                (Token::DoubleSquareBracket(Open), "[["),
+                (Token::BareString, "array"),
+                (Token::DoubleSquareBracket(Close), "]]"),
+                (Token::Eol, "\n"),
+                (Token::DoubleSquareBracket(Open), "[["),
+                (Token::BareString, "array"),
+                (Token::Period, "."),
+                (Token::BareString, "sub"),
+                (Token::DoubleSquareBracket(Close), "]]"),
+                (Token::Eol, "\n"),
+
+                (Token::BareString, "server"),
+                (Token::Equals, "="),
+                (Token::QuotedString, "\"test\""),
+                (Token::Eol, "\n"),
+                (Token::QuotedString, "\"my fav number\""),
+                (Token::Equals, "="),
+                (Token::NumberLit, "7.564"),
+                (Token::Eol, "\n"),
+                (Token::QuotedString, "\"127.0.0.1\""),
+                (Token::Equals, "="),
+                (Token::NumberLit, "15.56"),
+                (Token::Eol, "\n"),
             ],
         );
     }

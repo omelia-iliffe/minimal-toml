@@ -13,5 +13,5 @@ mod de;
 mod error;
 mod lexer;
 
-pub use de::from_str;
+pub use de::{Deserializer, from_str};
 pub use error::{Error, ErrorKind, Expected};

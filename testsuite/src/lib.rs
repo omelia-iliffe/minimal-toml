@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 
 pub fn print_token_error(input: &str, err: Error) -> ! {
     let draw_range = 16;
-    let start = std::cmp::max(0isize, err.span.start as isize - draw_range) as usize;
-    let end = std::cmp::min(input.len(), err.span.end + draw_range as usize);
+    let start = std::cmp::max(0isize, err.range.start as isize - draw_range) as usize;
+    let end = std::cmp::min(input.len(), err.range.end + draw_range as usize);
     println!();
-    println!("Error in token");
+    println!("Error in token ({}..{})", err.range.start, err.range.end);
 
     let dots = if start != 0 {
         print!("...");
@@ -31,13 +31,13 @@ pub fn print_token_error(input: &str, err: Error) -> ! {
     }
     println!();
 
-    for _ in 0..(err.span.start - start + dots) {
+    for _ in 0..(err.range.start - start + dots) {
         print!(" ");
     }
-    for _ in err.span.clone().into_iter() {
+    for _ in err.range.clone().into_iter() {
         print!("^");
     }
-    if err.span.start == input.len() {
+    if err.range.start == input.len() {
         print!("| Missing token");
     }
     println!();

@@ -3,7 +3,7 @@ use serde::de;
 use core::fmt::Display;
 use core::fmt::{self, Write};
 
-use crate::lexer::Token;
+use crate::lexer::{Token, TokenItem};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -16,6 +16,7 @@ pub enum ErrorKind {
     TrailingCharacters,
     MissingToken,
     Custom([u8; 64], usize),
+    Unsupported([u8; 64], usize),
     FailedToLex,
 }
 
@@ -35,15 +36,15 @@ pub enum Expected {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Error {
-    pub span: core::ops::Range<usize>,
+    pub range: core::ops::Range<usize>,
     pub kind: ErrorKind,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
 
 impl Error {
-    pub fn new(span: core::ops::Range<usize>, kind: ErrorKind) -> Self {
-        Self { span, kind }
+    pub fn new(range: core::ops::Range<usize>, kind: ErrorKind) -> Self {
+        Self { range, kind }
     }
 
     pub fn unexpected(
@@ -52,8 +53,29 @@ impl Error {
         expected: Expected,
     ) -> Self {
         Self {
-            span: lexer.tokens.inner().inner().span(),
+            range: lexer.tokens.inner().inner().span(),
             kind: ErrorKind::UnexpectedToken(unexpected, expected),
+        }
+    }
+
+    pub fn unsupported<T: Display>(item: &TokenItem, msg: T) -> Self {
+        let mut buf = [0u8; 64];
+        let offset = {
+            let mut wrapper = Wrapper::new(&mut buf);
+            let _ = write!(&mut wrapper, "{}", msg);
+            wrapper.offset
+        };
+
+        Error {
+            range: item.range.clone(),
+            kind: ErrorKind::Unsupported(buf, offset),
+        }
+    }
+
+    pub fn end(de: &crate::de::Deserializer<'_>, kind: ErrorKind) -> Error {
+        Error {
+            range: de.input.len()..de.input.len(),
+            kind,
         }
     }
 }
@@ -74,7 +96,7 @@ impl de::Error for Error {
         };
 
         Error {
-            span: 0..0,
+            range: 0..0,
             kind: ErrorKind::Custom(buf, offset),
         }
     }
@@ -105,19 +127,16 @@ impl core::fmt::Display for ErrorKind {
             ErrorKind::TableAlreadyDefined => "Table already defined",
             ErrorKind::TrailingCharacters => "Trailing characters",
             ErrorKind::MissingToken => "Missing token",
-            ErrorKind::Custom(bytes, len) => core::str::from_utf8(&bytes[..*len]).unwrap(),
+            // SAFETY: We only format valid utf8 within these variants
+            ErrorKind::Custom(bytes, len) => unsafe {
+                core::str::from_utf8_unchecked(&bytes[..*len])
+            },
+            ErrorKind::Unsupported(bytes, len) => unsafe {
+                core::str::from_utf8_unchecked(&bytes[..*len])
+            },
             ErrorKind::FailedToLex => "Failed to lex",
         };
         f.write_str(s)
-    }
-}
-
-impl Error {
-    pub fn end(de: &crate::de::Deserializer<'_>, kind: ErrorKind) -> Error {
-        Error {
-            span: de.input.len()..de.input.len(),
-            kind,
-        }
     }
 }
 

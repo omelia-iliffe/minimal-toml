@@ -62,6 +62,7 @@ mod tests {
 
         #[derive(Serialize, Deserialize, Debug, PartialEq)]
         struct Sub {
+            sub2: heapless::Vec<Test, 4>,
             sub: heapless::Vec<Test, 4>,
         }
 
@@ -79,6 +80,7 @@ mod tests {
                 crate::expect_with_toml_rs(&a);
                 let sub = Sub {
                     sub: heapless::Vec::new(),
+                    sub2: heapless::Vec::new(),
                 };
                 a.arrays.push(sub).unwrap();
                 crate::expect_with_toml_rs(&a);
