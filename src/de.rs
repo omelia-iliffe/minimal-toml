@@ -1,16 +1,12 @@
-use core::convert::{AsMut, AsRef};
 use core::ops::Range;
 use core::str::FromStr;
 use peekmore::{PeekMore, PeekMoreIterator};
-use serde::de::{
-    Deserialize, DeserializeSeed, EnumAccess, IntoDeserializer, MapAccess, SeqAccess,
-    VariantAccess, Visitor,
-};
+use serde::de::{Deserialize, DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserializer as SerdeDeserializer;
 
 use crate::error::{Error, ErrorKind, Expected, Result};
 use crate::lexer::{self, BracketType::*, LexerIterator, Token, TokenItem};
-use crate::{expect_next, expect_next_peeked, expect_next_with_item, range_to_str};
+use crate::{expect_next, expect_next_peeked, range_to_str};
 
 pub struct Deserializer<'de> {
     // This string starts with the input data and characters are truncated off
@@ -21,20 +17,25 @@ pub struct Deserializer<'de> {
     in_array_table: Option<&'de str>,
 }
 
-#[cfg(all(debug_assertions, feature = "std"))]
-use println as p;
+//#[cfg(all(debug_assertions, feature = "std"))]
+//use println as p;
 
-#[cfg(not(debug_assertions))]
+//#[cfg(not(debug_assertions))]
 macro_rules! p {
     () => {};
     ($($arg:tt)*) => {};
 }
 
-#[cfg(not(feature = "std"))]
-use libc_print::libc_println as p;
+macro_rules! print {
+    () => {};
+    ($($arg:tt)*) => {};
+}
 
-#[cfg(not(feature = "std"))]
-use libc_print::libc_print as print;
+//#[cfg(not(feature = "std"))]
+//use libc_print::libc_println as p;
+
+//#[cfg(not(feature = "std"))]
+//use libc_print::libc_print as print;
 
 #[cfg(debug_assertions)]
 macro_rules! p2 {
@@ -81,6 +82,7 @@ where
 }
 
 impl<'de> Deserializer<'de> {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(input: &'de str) -> Self {
         Deserializer {
             input,
@@ -88,10 +90,6 @@ impl<'de> Deserializer<'de> {
             depth: 0,
             in_array_table: None,
         }
-    }
-
-    fn lexer<'a>(&'de self) -> &'a lexer::Lexer {
-        self.tokens.inner().inner()
     }
 
     fn handle_opt_item(&self, opt: Option<lexer::TokenItem>) -> Result<TokenItem> {
@@ -122,12 +120,6 @@ impl<'de> Deserializer<'de> {
         self.handle_opt_item(item)
     }
 
-    /// Consumes the number of peeked elements. After calling this [`next`] will return the value
-    /// that [`peek_next`] would have returned before the call to [`consume_peeked`].
-    fn consume_peeked(&mut self) {
-        self.tokens.truncate_iterator_to_cursor();
-    }
-
     /// Consumes the next token item from the lexer
     fn next(&mut self) -> Result<TokenItem> {
         let item = self.tokens.next();
@@ -136,7 +128,7 @@ impl<'de> Deserializer<'de> {
 
     fn range_to_str(&self, range: Range<usize>) -> &str {
         if range.start > range.end || range.end > self.input.len() {
-            return &self.input[0..0];
+            &self.input[0..0]
         } else {
             &self.input[range.start..range.end]
         }
@@ -469,8 +461,8 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     // the fields cannot be known ahead of time is probably a map.
     fn deserialize_struct<V>(
         mut self,
-        name: &'static str,
-        fields: &'static [&'static str],
+        _name: &'static str,
+        _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value>
     where
@@ -478,10 +470,7 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
     {
         p2!(self, "~deserialize_struct {} {:?}", name, fields);
         self.depth += 1;
-        let r = visitor.visit_map(KeyValuePairs::new_expecting_struct(
-            &mut self,
-            StructInfo { name, fields },
-        ));
+        let r = visitor.visit_map(KeyValuePairs::new(&mut self));
         self.depth -= 1;
         r
     }
@@ -514,13 +503,11 @@ impl<'de, 'a> SerdeDeserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value>
+    fn deserialize_ignored_any<V>(self, _visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
         p2!(self, "~deserialize_ignored_any");
-        self.consume_whitespace_and_comments()?;
-        let token = self.next()?;
         unimplemented!()
         /*
 
@@ -616,32 +603,14 @@ impl<'de, 'a> MapAccess<'de> for CommaSeparated<'a, 'de> {
     }
 }
 
-struct StructInfo {
-    name: &'static str,
-    fields: &'static [&'static str],
-}
-
 struct KeyValuePairs<'a, 'de: 'a> {
     de: &'a mut Deserializer<'de>,
     first: bool,
-    struct_info: Option<StructInfo>,
 }
 
 impl<'a, 'de> KeyValuePairs<'a, 'de> {
     fn new(de: &'a mut Deserializer<'de>) -> Self {
-        Self {
-            de,
-            first: true,
-            struct_info: None,
-        }
-    }
-
-    fn new_expecting_struct(de: &'a mut Deserializer<'de>, info: StructInfo) -> Self {
-        Self {
-            de,
-            first: true,
-            struct_info: Some(info),
-        }
+        Self { de, first: true }
     }
 }
 
@@ -663,7 +632,12 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
         }
         let token_item = de_self.peek().unwrap();
         let token = token_item.token;
-        p2!(de_self, "Key: {:?} - depth: {}", range_to_str!(de_self, token_item), de_self.depth);
+        p2!(
+            de_self,
+            "Key: {:?} - depth: {}",
+            range_to_str!(de_self, token_item),
+            de_self.depth
+        );
         let result = match token {
             //Simple key value pair - parse name
             Token::BareString => seed.deserialize(&mut *self.de).map(Some),
@@ -704,15 +678,15 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 second.expect(Token::BareString)?;
                 let mut name = range_to_str!(de_self, second);
                 if let Some(outer_name) = de_self.in_array_table {
+                    //We are inside a table already
                     let next_item = de_self.peek_next()?;
                     if let Token::Period = next_item.token {
                         p2!(de_self, "Got dotted name. Master table: {}", name);
                         if name != outer_name {
-                            //TODO: Better error handeling here
-                            panic!(
-                                "current table path start {} doesn't equal expected table name {}",
-                                name, outer_name
-                            );
+                            return Err(Error::unsupported(
+                                &next_item,
+                                "current table path start doesn't equal last table path",
+                            ));
                         }
                         //Move the cursor to where we are peaked at so that deserialize below gets
                         //the right name
@@ -720,7 +694,11 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                         name = range_to_str!(de_self, name_token);
                         p2!(de_self, "Got sub element: {}", name);
                     } else if name == outer_name {
-                        p2!(de_self, "Found next table in array, next item: {:?}", next_item.token);
+                        p2!(
+                            de_self,
+                            "Found next table in array, next item: {:?}",
+                            next_item.token
+                        );
 
                         return Ok(None);
                     } else {
@@ -733,7 +711,6 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
                 } else {
                     de_self.in_array_table = Some(name);
                 }
-                //Subtable element with path
 
                 p2!(de_self, "In array of tables: {}", name);
                 //Read string within [[...]]
@@ -781,13 +758,11 @@ impl<'de, 'a> MapAccess<'de> for KeyValuePairs<'a, 'de> {
 
         let de_self = &mut *self.de;
         if de_self.depth <= 2 && allow_consume_whitespace {
-            p2!(de_self, "Consuming whitespace after other value");
             //Failure indicates end of stream so dont fail here because we will retry in next_key_seed,
             //see the end of stream there, then end the map
             let _ = self.de.consume_whitespace_and_comments();
         } else {
             //Normal key-value pair - Consume end of line
-            p2!(de_self, "Expectitng eol");
             self.de.expect_eol_or_eof()?;
         }
 
@@ -876,71 +851,5 @@ impl<'de, 'a> SeqAccess<'de> for ArrayOfTables<'a, 'de> {
         let r = seed.deserialize(&mut *self.de).map(Some);
         self.de.depth -= 1;
         r
-    }
-}
-
-struct Enum<'a, 'de: 'a> {
-    de: &'a mut Deserializer<'de>,
-}
-
-// `EnumAccess` is provided to the `Visitor` to give it the ability to determine
-// which variant of the enum is supposed to be deserialized.
-//
-// Note that all enum deserialization methods in Serde refer exclusively to the
-// "externally tagged" enum representation.
-impl<'de, 'a> EnumAccess<'de> for Enum<'a, 'de> {
-    type Error = Error;
-    type Variant = Self;
-
-    fn variant_seed<V>(mut self, seed: V) -> Result<(V::Value, Self::Variant)>
-    where
-        V: DeserializeSeed<'de>,
-    {
-        p!("In variant seed");
-        let val = seed.deserialize(&mut *self.de)?;
-
-        let de_self = &mut self.de;
-        //expect_token!(de_self, Token::Equals, Expected::Token(Token::Equals));
-        todo!();
-        Ok((val, self))
-    }
-}
-
-// `VariantAccess` is provided to the `Visitor` to give it the ability to see
-// the content of the single variant that it decided to deserialize.
-impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
-    type Error = Error;
-
-    // If the `Visitor` expected this variant to be a unit variant, the input
-    // should have been the plain string case handled in `deserialize_enum`.
-    fn unit_variant(self) -> Result<()> {
-        unimplemented!()
-    }
-
-    // Newtype variants are represented in JSON as `{ NAME: VALUE }` so
-    // deserialize the value here.
-    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
-    where
-        T: DeserializeSeed<'de>,
-    {
-        seed.deserialize(self.de)
-    }
-
-    // Tuple variants are represented in JSON as `{ NAME: [DATA...] }` so
-    // deserialize the sequence of data here.
-    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        SerdeDeserializer::deserialize_seq(self.de, visitor)
-    }
-
-    // Struct variants are represented in JSON as `{ NAME: { K: V, ... } }` so
-    // deserialize the inner map here.
-    fn struct_variant<V>(self, _fields: &'static [&'static str], visitor: V) -> Result<V::Value>
-    where
-        V: Visitor<'de>,
-    {
-        SerdeDeserializer::deserialize_map(self.de, visitor)
     }
 }

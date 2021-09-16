@@ -72,36 +72,6 @@ pub fn lex(input: &str) -> logos::Lexer<'_, Token> {
     Token::lexer(input)
 }
 
-#[derive(Debug, Clone)]
-enum PeekedState<I> {
-    None,
-    Single(Option<I>),
-    Double(I, Option<I>),
-}
-
-impl<I> PeekedState<I> {
-    /// Takes a peeked value from inside this state returning it if there was one
-    fn take(&mut self) -> Option<I> {
-        let (i, new_self): (Option<I>, PeekedState<I>) = match self.take_state() {
-            PeekedState::None => (None, PeekedState::None),
-            PeekedState::Single(i) => (i, PeekedState::None),
-            PeekedState::Double(i1, i2) => (Some(i1), PeekedState::Single(i2)),
-        };
-        *self = new_self;
-        i
-    }
-
-    fn take_state(&mut self) -> PeekedState<I> {
-        core::mem::take(self)
-    }
-}
-
-impl<I> Default for PeekedState<I> {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 pub struct LexerIterator<'a> {
     lexer: Lexer<'a>,
 }
@@ -407,7 +377,6 @@ b = false"#,
         );
     }
 
-
     #[test]
     fn lex7() {
         test_lex(
@@ -430,7 +399,6 @@ b = false"#,
                 (Token::BareString, "sub"),
                 (Token::DoubleSquareBracket(Close), "]]"),
                 (Token::Eol, "\n"),
-
                 (Token::BareString, "server"),
                 (Token::Equals, "="),
                 (Token::QuotedString, "\"test\""),

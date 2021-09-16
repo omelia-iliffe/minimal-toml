@@ -2,9 +2,11 @@
   "cSpell.words": [
     "Mutliline",
     "Peekable",
+    "clippy",
     "heapless",
     "newtype",
     "peekmore",
+    "serializers",
     "substruct"
   ]
 }
