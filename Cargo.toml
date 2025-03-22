@@ -16,7 +16,6 @@ members = ["testsuite"]
 [dependencies]
 logos = { version = "0.12", default-features = false, features = ["export_derive"] }
 serde = { version = "1.0", default-features = false }
-libc-print = "0.1"
 peekmore = { git = "https://github.com/TroyNeubauer/peekmore.git", branch = "inner-access" }
 
 [features]
