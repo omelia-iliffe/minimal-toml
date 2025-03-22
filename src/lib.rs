@@ -15,3 +15,22 @@ mod lexer;
 
 pub use de::{from_str, Deserializer};
 pub use error::{Error, ErrorKind, Expected};
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_deserialize() {
+        #[derive(Debug, Clone, serde::Deserialize)]
+        struct Config {
+            sbus_fast: bool,
+        }
+        let toml = "sbus_fast = false";
+
+        let config: Config = from_str(toml).unwrap();
+
+        dbg!(config);
+    }
+}
